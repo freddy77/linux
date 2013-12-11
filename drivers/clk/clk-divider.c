@@ -227,12 +227,10 @@ static int clk_divider_set_rate(struct clk_hw *hw, unsigned long rate,
 	if (divider->lock)
 		spin_lock_irqsave(divider->lock, flags);
 
-	if (divider->flags & CLK_DIVIDER_HIWORD_MASK) {
-		val = div_mask(divider) << (divider->shift + 16);
-	} else {
-		val = clk_readl(divider->reg);
-		val &= ~(div_mask(divider) << divider->shift);
-	}
+	val = clk_readl(divider->reg);
+	val &= ~(div_mask(divider) << divider->shift);
+	if (divider->flags & CLK_DIVIDER_HIWORD_MASK)
+		val |= div_mask(divider) << (divider->shift + 16);
 	val |= value << divider->shift;
 	clk_writel(val, divider->reg);
 
