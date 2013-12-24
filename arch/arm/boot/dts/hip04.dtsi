@@ -55,6 +55,8 @@
 
 		clock: clock {
 			compatible = "hisilicon,hip04-clock";
+			/* FIXME: the base of clock controller */
+			reg = <0 0x1000>;
 			#clock-cells = <1>;
 		};
 
