@@ -11,6 +11,9 @@
  * publishhed by the Free Software Foundation.
  */
 
+#include "skeleton.dtsi"
+#include <dt-bindings/clock/hip04-clock.h>
+
 / {
 	/* memory bus is 64-bit */
 	#address-cells = <2>;
@@ -18,20 +21,6 @@
 
 	aliases {
 		serial0 = &uart0;
-	};
-
-	pclk: clk@0 {
-		compatible = "fixed-clock";
-		#clock-cells = <0>;
-		clock-frequency = <50000000>;
-		clock-output-names = "apb_pclk";
-	};
-
-	uartclk: clk@1 {
-		compatible = "fixed-clock";
-		#clock-cells = <0>;
-		clock-frequency = <168750000>;
-		clock-output-names = "uart_clk";
 	};
 
 	cpus {
@@ -64,11 +53,18 @@
 			reg = <0xc01000 0x1000>, <0xc02000 0x1000>;
 		};
 
+		clock: clock {
+			compatible = "hisilicon,hip04-clock";
+			/* FIXME: the base of clock controller */
+			reg = <0 0x1000>;
+			#clock-cells = <1>;
+		};
+
 		dual_timer0: dual_timer@3000000 {
 			compatible = "arm,sp804", "arm,primecell";
 			reg = <0x3000000 0x1000>;
 			interrupts = <0 224 4>;
-			clocks = <&pclk>;
+			clocks = <&clock HIP04_CLK_50M>;
 			clock-names = "apb_pclk";
 			status = "ok";
 		};
@@ -87,7 +83,7 @@
 			compatible = "snps,dw-apb-uart";
 			reg = <0x4007000 0x1000>;
 			interrupts = <0 381 4>;
-			clocks = <&uartclk>;
+			clocks = <&clock HIP04_CLK_168M>;
 			clock-names = "uartclk";
 			reg-shift = <2>;
 			status = "disabled";

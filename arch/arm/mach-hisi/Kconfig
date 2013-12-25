@@ -18,7 +18,7 @@ config ARCH_HI3xxx
 	help
 	  Support for Hisilicon Hi36xx/Hi37xx processor family
 
-config ARCH_HIP0x
+config ARCH_HIP04
 	bool "Hisilicon HiP0x Cortex A15 family" if ARCH_MULTI_V7
 	select ARCH_WANT_OPTIONAL_GPIOLIB
 	select ARM_AMBA
