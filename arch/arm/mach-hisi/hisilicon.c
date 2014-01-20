@@ -24,6 +24,7 @@
 #include <asm/mach/map.h>
 
 #include "core.h"
+#include "ahci_vsemiphy.c"
 
 #define HI3620_SYSCTRL_PHYS_BASE		0xfc802000
 #define HI3620_SYSCTRL_VIRT_BASE		0xfe802000
@@ -95,6 +96,7 @@ MACHINE_END
 
 static int sata_vsemiphy_init(struct device *dev, void __iomem *addr)
 {
+	hi_vsemi_init(addr);
 	return 0;
 }
 
