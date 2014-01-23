@@ -20,7 +20,7 @@
  * to consider dynamic allocation.
  */
 #define MAX_CPUS_PER_CLUSTER	4
-#define MAX_NR_CLUSTERS		2
+#define MAX_NR_CLUSTERS		4
 
 #ifndef __ASSEMBLY__
 
