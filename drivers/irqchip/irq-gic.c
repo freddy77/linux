@@ -41,6 +41,7 @@
 #include <linux/slab.h>
 #include <linux/irqchip/chained_irq.h>
 #include <linux/irqchip/arm-gic.h>
+#include <linux/irqchip/hip04-gic.h>
 
 #include <asm/irq.h>
 #include <asm/exception.h>
@@ -82,6 +83,7 @@ static DEFINE_RAW_SPINLOCK(irq_controller_lock);
 #define MAX_NR_GIC_CPU_IF 16
 static u16 gic_cpu_map[MAX_NR_GIC_CPU_IF] __read_mostly;
 static int nr_gic_cpu_if = 8;	/* The standard GIC supports 8 CPUs */
+unsigned long arm_gic_im = ARM_GIC_IMPLEMENTATION;
 
 /*
  * Supported arch specific GIC irq extension.
@@ -995,8 +997,10 @@ int __init gic_of_init(struct device_node *node, struct device_node *parent)
 		return -ENODEV;
 
 	/* HiP04 supports 16 CPUs at most */
-	if (of_device_is_compatible(node, "hisilicon,hip04-gic"))
+	if (of_device_is_compatible(node, "hisilicon,hip04-gic")) {
 		nr_gic_cpu_if = 16;
+		arm_gic_im = HIP04_GIC_IMPLEMENTATION;
+	}
 
 	dist_base = of_iomap(node, 0);
 	WARN(!dist_base, "unable to map gic dist registers\n");
