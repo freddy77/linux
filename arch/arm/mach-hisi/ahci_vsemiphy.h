@@ -3,27 +3,6 @@
 
 /* sata使用的系统和IOCONTROL寄存器地址定义 */
 
-/* 基地址定义 */
-#define HI_SYS_CTL_REG_BASE_ADDR          (ioremap_nocache(0xe3e00000, 0x10000))
-#define HI_IOCONTROL1_REG_BASE_ADDR       (ioremap_nocache(0xe8002000, 0x1000))
-
-/* 寄存器地址定义 */
-#define HI_SC_SATA_CLK_EN_ADDR            (HI_SYS_CTL_REG_BASE_ADDR + 0x0310)
-#define HI_SC_SATA_CLK_DIS_ADDR           (HI_SYS_CTL_REG_BASE_ADDR + 0x0314)
-#define HI_SC_SERDES_RESET_REQ1_ADDR      (HI_SYS_CTL_REG_BASE_ADDR + 0x0588)
-#define HI_SC_SERDES_RESET_DREQ1_ADDR     (HI_SYS_CTL_REG_BASE_ADDR + 0x058C)
-#define HI_SC_USB_RESET_REQ_ADDR          (HI_SYS_CTL_REG_BASE_ADDR + 0x0600)
-#define HI_SC_USB_RESET_DREQ_ADDR         (HI_SYS_CTL_REG_BASE_ADDR + 0x0604)
-#define HI_SC_SATA_CLK_ST_ADDR            (HI_SYS_CTL_REG_BASE_ADDR + 0x1310)
-#define HI_IOCTRL1_0_ADDR                 (HI_IOCONTROL1_REG_BASE_ADDR + 0x0)
-#define HI_IOCTRL1_1_ADDR                 (HI_IOCONTROL1_REG_BASE_ADDR + 0x4)
-#define HI_IOCTRL1_2_ADDR                 (HI_IOCONTROL1_REG_BASE_ADDR + 0x8)
-#define HI_IOCTRL1_3_ADDR                 (HI_IOCONTROL1_REG_BASE_ADDR + 0xc)
-#define HI_IOCTRL1_4_ADDR                 (HI_IOCONTROL1_REG_BASE_ADDR + 0x10)
-#define HI_IOCTRL1_5_ADDR                 (HI_IOCONTROL1_REG_BASE_ADDR + 0x14)
-#define HI_IOCTRL1_12_ADDR                (HI_IOCONTROL1_REG_BASE_ADDR + 0x30)
-#define HI_IOCTRL1_18_ADDR                (HI_IOCONTROL1_REG_BASE_ADDR + 0x48)
-#define HI_IOCTRL1_IOSTAT1_0_ADDR         (HI_IOCONTROL1_REG_BASE_ADDR + 0x400)
 
 #define HI_SATA_PORT_PHYCTL     0x74
 #define UINT32 unsigned int
