@@ -11,7 +11,6 @@
  * publishhed by the Free Software Foundation.
  */
 
-#include "skeleton.dtsi"
 #include <dt-bindings/clock/hip04-clock.h>
 
 / {
