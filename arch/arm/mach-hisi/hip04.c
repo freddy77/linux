@@ -17,6 +17,7 @@
 #include <linux/irqchip/arm-gic.h>
 #include <linux/of_address.h>
 #include <linux/of_platform.h>
+#include <linux/reboot.h>
 #include <linux/slab.h>
 
 #include <asm/cp15.h>
@@ -69,6 +70,8 @@
 static void __iomem *relocation = NULL, *sysctrl = NULL, *fabric = NULL;
 static int hip04_cpu_table[HIP04_MAX_CLUSTERS][HIP04_MAX_CPUS_PER_CLUSTER];
 static DEFINE_SPINLOCK(boot_lock);
+
+static void __iomem *gb3 = NULL;	/* gpio bank3 to control watchdog */
 
 static bool hip04_cluster_down(unsigned int cluster)
 {
@@ -315,12 +318,57 @@ static struct of_dev_auxdata hip04_auxdata_lookup[] __initdata = {
 
 static void __init hip04_init_machine(void)
 {
+	unsigned int data, mask;
 	of_platform_populate(NULL, of_default_bus_match_table,
 			hip04_auxdata_lookup, NULL);
+
+	gb3 = ioremap(0xe4003000, 0x1000);
+	if (!gb3) {
+		pr_err("failed to map GB3\n");
+		return;
+	}
+	mask = 0xffdfffff;
+	/* read GPIO3_SWPORT_DDR */
+	data = readl_relaxed(gb3 + 4);
+	if (!(data & ~mask)) {
+		/* switch GPIO direction from IN to OUT */
+		writel_relaxed(data | ~mask, gb3 + 4);
+	}
+	data = readl_relaxed(gb3);
+	/* write high to GPIO117 to disable watchdog */
+	writel_relaxed(data | ~mask, gb3);
+}
+
+static void hip04_restart(enum reboot_mode mode, const char *cmd)
+{
+	unsigned int data, mask;
+
+	if (!gb3) {
+		pr_err("GB3 isn't initialized\n");
+		return;
+	}
+	mask = 0xffdfffff;
+	/* read GPIO3_SWPORT_DDR */
+	data = readl_relaxed(gb3 + 4);
+	if (!(data & ~mask)) {
+		/* switch GPIO direction from IN to OUT */
+		writel_relaxed(data | ~mask, gb3 + 4);
+	}
+	data = readl_relaxed(gb3);
+	/* write low to GPIO117 */
+	writel_relaxed(data & mask, gb3);
+	udelay(100);
+	/* write high to GPIO117 to disable watchdog */
+	writel_relaxed(data | ~mask, gb3);
+	udelay(100);
+	/* write low to GPIO117 */
+	writel_relaxed(data & mask, gb3);
+	udelay(100);
 }
 
 DT_MACHINE_START(HIP01, "Hisilicon HiP04 (Flattened Device Tree)")
 	.dt_compat	= hip04_compat,
 	.smp_init	= smp_init_ops(hip04_smp_init_ops),
 	.init_machine	= hip04_init_machine,
+	.restart	= hip04_restart,
 MACHINE_END
