@@ -15,6 +15,7 @@
 #include <linux/delay.h>
 #include <linux/io.h>
 #include <linux/irqchip/arm-gic.h>
+#include <linux/memblock.h>
 #include <linux/of_address.h>
 #include <linux/of_platform.h>
 #include <linux/reboot.h>
@@ -29,8 +30,9 @@
 
 #include "ahci_vsemiphy.c"
 
-#define BOOTLOADER_PHYS		0x10c00000
-#define BOOTLOADER_MAGIC	0xa5a5a5a5
+#define BOOTWRAPPER_PHYS		0x10c00000
+#define BOOTWRAPPER_MAGIC		0xa5a5a5a5
+#define BOOTWRAPPER_SIZE		0x00010000
 
 /* bits definition in SC_CPU_RESET_REQ[x]/SC_CPU_RESET_DREQ[x]
  * 1 -- unreset; 0 -- reset
@@ -111,8 +113,8 @@ static int hip04_mcpm_power_up(unsigned int cpu, unsigned int cluster)
 		return -EINVAL;
 
 	spin_lock(&boot_lock);
-	writel_relaxed(BOOTLOADER_PHYS, relocation);
-	writel_relaxed(BOOTLOADER_MAGIC, relocation + 4);
+	writel_relaxed(BOOTWRAPPER_PHYS, relocation);
+	writel_relaxed(BOOTWRAPPER_MAGIC, relocation + 4);
 	writel_relaxed(virt_to_phys(mcpm_entry_point), relocation + 8);
 	writel_relaxed(0, relocation + 12);
 
@@ -366,9 +368,15 @@ static void hip04_restart(enum reboot_mode mode, const char *cmd)
 	udelay(100);
 }
 
+static void __init hip04_reserve(void)
+{
+	memblock_reserve(BOOTWRAPPER_PHYS, BOOTWRAPPER_SIZE);
+}
+
 DT_MACHINE_START(HIP01, "Hisilicon HiP04 (Flattened Device Tree)")
 	.dt_compat	= hip04_compat,
 	.smp_init	= smp_init_ops(hip04_smp_init_ops),
 	.init_machine	= hip04_init_machine,
 	.restart	= hip04_restart,
+	.reserve	= hip04_reserve,
 MACHINE_END
