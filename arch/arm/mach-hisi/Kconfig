@@ -25,11 +25,11 @@ config ARCH_HIP04
 	select ARM_GIC
 	select ARM_LPAE
 	select ARM_TIMER_SP804
-	select CACHE_L2X0
 	select CLKSRC_OF
 	select GENERIC_CLOCKEVENTS
 	select HAVE_ARM_ARCH_TIMER
 	select HAVE_SMP
+	select MCPM
 	select SMP
 	help
 	  Support for Hisilicon HiP0x processor family
