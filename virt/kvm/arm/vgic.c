@@ -26,6 +26,7 @@
 #include <linux/of_irq.h>
 
 #include <linux/irqchip/arm-gic.h>
+#include <linux/irqchip/hip04-gic.h>
 
 #include <asm/kvm_emulate.h>
 #include <asm/kvm_arm.h>
@@ -825,7 +826,9 @@ static void vgic_update_state(struct kvm *kvm)
 }
 
 #define LR_CPUID(lr)	\
-	(((lr) & GICH_LR_PHYSID_CPUID) >> GICH_LR_PHYSID_CPUID_SHIFT)
+	((arm_gic_im & ARM_GIC_IMPLEMENTATION) ? \
+	 ((lr) & GICH_LR_PHYSID_CPUID) >> GICH_LR_PHYSID_CPUID_SHIFT : \
+	 ((lr) & HIP04_GICH_LR_PHYSID_CPUID) >> GICH_LR_PHYSID_CPUID_SHIFT)
 #define MK_LR_PEND(src, irq)	\
 	(GICH_LR_PENDING_BIT | ((src) << GICH_LR_PHYSID_CPUID_SHIFT) | (irq))
 

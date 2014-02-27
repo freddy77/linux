@@ -11,7 +11,6 @@
  * publishhed by the Free Software Foundation.
  */
 
-#include "skeleton.dtsi"
 #include <dt-bindings/clock/hip04-clock.h>
 
 / {
@@ -27,10 +26,41 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 
-		cpu@0 {
+		cpu-map {
+			cluster0 {
+				core0 {
+					cpu = <&CPU0>;
+				};
+				core1 {
+					cpu = <&CPU1>;
+				};
+				core2 {
+					cpu = <&CPU2>;
+				};
+				core3 {
+					cpu = <&CPU3>;
+				};
+			};
+		};
+		CPU0: cpu@0 {
 			device_type = "cpu";
 			compatible = "arm,cortex-a15";
 			reg = <0>;
+		};
+		CPU1: cpu@1 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a15";
+			reg = <1>;
+		};
+		CPU2: cpu@2 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a15";
+			reg = <2>;
+		};
+		CPU3: cpu@3 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a15";
+			reg = <3>;
 		};
 	};
 
@@ -44,13 +74,19 @@
 		ranges = <0 0 0xe0000000 0x10000000>;
 
 		gic: interrupt-controller@c01000 {
-			compatible = "arm,cortex-a15-gic";
+			compatible = "hisilicon,hip04-gic";
 			#interrupt-cells = <3>;
 			#address-cells = <0>;
 			interrupt-controller;
 
 			/* gic dist base, gic cpu base */
 			reg = <0xc01000 0x1000>, <0xc02000 0x1000>;
+		};
+
+		mcpm: mcpm {
+			compatible = "hisilicon,hip04-mcpm";
+			reg = <0x100 0x1000>, <0x3e00000 0x00100000>,
+			      <0x302a000 0x1000>;
 		};
 
 		clock: clock {
