@@ -11,7 +11,6 @@
  * published by the Free Software Foundation.
 */
 
-#include <linux/ahci_platform.h>
 #include <linux/delay.h>
 #include <linux/io.h>
 #include <linux/irqchip/arm-gic.h>
@@ -27,8 +26,6 @@
 
 #include <asm/mach/arch.h>
 #include <asm/mach/map.h>
-
-#include "ahci_vsemiphy.c"
 
 #define BOOTWRAPPER_PHYS		0x10c00000
 #define BOOTWRAPPER_MAGIC		0xa5a5a5a5
@@ -300,29 +297,10 @@ static const char *hip04_compat[] __initconst = {
 	NULL,
 };
 
-#define HIP04_SATA_BASE		(0xea000000)
-
-static int sata_vsemiphy_init(struct device *dev, void __iomem *addr)
-{
-	hi_vsemi_init(addr);
-	return 0;
-}
-
-static struct ahci_platform_data hip04_sata_pdata = {
-	.init	= sata_vsemiphy_init,
-};
-
-static struct of_dev_auxdata hip04_auxdata_lookup[] __initdata = {
-	OF_DEV_AUXDATA("hisilicon,hisi-ahci", HIP04_SATA_BASE,
-			NULL, &hip04_sata_pdata),
-	{},
-};
-
 static void __init hip04_init_machine(void)
 {
 	unsigned int data, mask;
-	of_platform_populate(NULL, of_default_bus_match_table,
-			hip04_auxdata_lookup, NULL);
+	of_platform_populate(NULL, of_default_bus_match_table, NULL, NULL);
 
 	gb3 = ioremap(0xe4003000, 0x1000);
 	if (!gb3) {
