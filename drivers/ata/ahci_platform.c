@@ -158,6 +158,11 @@ static int ahci_probe(struct platform_device *pdev)
 		pdata ? pdata->force_port_map : 0,
 		pdata ? pdata->mask_port_map  : 0);
 
+#ifdef CONFIG_ARCH_HIP04
+	/* hip04 ahci has hardware issue(error bit of FBS feature) */
+	hpriv->cap &= ~HOST_CAP_FBS;
+	hpriv->saved_cap &= ~HOST_CAP_FBS;
+#endif
 	/* prepare host */
 	if (hpriv->cap & HOST_CAP_NCQ)
 		pi.flags |= ATA_FLAG_NCQ;
