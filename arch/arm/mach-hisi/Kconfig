@@ -31,6 +31,7 @@ config ARCH_HIP04
 	select HAVE_SMP
 	select MCPM
 	select SMP
+	select ARM_ERRATA_798181
 	help
 	  Support for Hisilicon HiP0x processor family
 
