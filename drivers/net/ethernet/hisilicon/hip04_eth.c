@@ -116,6 +116,7 @@ struct hip04_priv {
 	struct phy_device *phy;
 	struct regmap *map;
 	struct timer_list txtimer;
+	struct work_struct tx_timeout_task;
 };
 
 static void hip04_config_port(struct net_device *ndev, u32 speed, u32 duplex)
@@ -203,7 +204,7 @@ static void hip04_config_fifo(struct hip04_priv *priv)
 	writel_relaxed(val, priv->base + PPE_CFG_BUS_CTRL_REG);
 
 	/* set max pkt len, curtail if exceed */
-	val = GMAC_PPE_RX_PKT_MAX_LEN;	/* max buffer len */
+	val = GMAC_PPE_RX_PKT_MAX_LEN;	/* max pkt len */
 	writel_relaxed(val, priv->base + PPE_CFG_MAX_FRAME_LEN_REG);
 
 	/* set max len of each pkt */
@@ -427,13 +428,10 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 		len = be16_to_cpu(desc->pkt_len);
 		err = be32_to_cpu(desc->pkt_err);
 
-		if (len > RX_BUF_SIZE)
-			len = RX_BUF_SIZE;
-
 		if (0 == len) {
 			dev_kfree_skb_any(skb);
 			last = true;
-		} else if (err & RX_PKT_ERR) {
+		} else if ((err & RX_PKT_ERR) || (len >= GMAC_MAX_PKT_LEN)) {
 			dev_kfree_skb_any(skb);
 			stats->rx_dropped++;
 			stats->rx_errors++;
@@ -515,8 +513,8 @@ static int hip04_mac_open(struct net_device *ndev)
 	priv->tx_head = 0;
 	priv->tx_tail = 0;
 	priv->tx_count = 0;
-
 	hip04_reset_ppe(priv);
+
 	for (i = 0; i < RX_DESC_NUM; i++) {
 		dma_addr_t phys;
 
@@ -546,6 +544,7 @@ static int hip04_mac_stop(struct net_device *ndev)
 
 	napi_disable(&priv->napi);
 	netif_stop_queue(ndev);
+	del_timer_sync(&priv->txtimer);
 	hip04_mac_disable(ndev);
 	hip04_tx_reclaim(ndev, true);
 	hip04_reset_ppe(priv);
@@ -566,8 +565,18 @@ static int hip04_mac_stop(struct net_device *ndev)
 
 static void hip04_timeout(struct net_device *ndev)
 {
-	hip04_mac_stop(ndev);
-	hip04_mac_open(ndev);
+	struct hip04_priv *priv = netdev_priv(ndev);
+
+	schedule_work(&priv->tx_timeout_task);
+}
+
+static void hip04_tx_timeout_task(struct work_struct *work)
+{
+	struct hip04_priv *priv;
+
+	priv = container_of(work, struct hip04_priv, tx_timeout_task);
+	hip04_mac_stop(priv->ndev);
+	hip04_mac_open(priv->ndev);
 	return;
 }
 
@@ -637,6 +646,7 @@ static int hip04_mac_probe(struct platform_device *pdev)
 
 	priv = netdev_priv(ndev);
 	priv->ndev = ndev;
+	spin_lock_init(&priv->lock);
 	platform_set_drvdata(pdev, ndev);
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
@@ -692,6 +702,8 @@ static int hip04_mac_probe(struct platform_device *pdev)
 		}
 	}
 
+	INIT_WORK(&priv->tx_timeout_task, hip04_tx_timeout_task);
+
 	ether_setup(ndev);
 	ndev->netdev_ops = &hip04_netdev_ops;
 	ndev->watchdog_timeo = TX_TIMEOUT;
@@ -740,11 +752,11 @@ static int hip04_remove(struct platform_device *pdev)
 	if (priv->phy)
 		phy_disconnect(priv->phy);
 
-	del_timer_sync(&priv->txtimer);
 	hip04_free_ring(ndev, d);
 	unregister_netdev(ndev);
 	free_irq(ndev->irq, ndev);
 	of_node_put(priv->phy_node);
+	cancel_work_sync(&priv->tx_timeout_task);
 	free_netdev(ndev);
 
 	return 0;
