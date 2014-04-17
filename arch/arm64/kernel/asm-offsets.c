@@ -136,7 +136,7 @@ int main(void)
   DEFINE(VGIC_CPU_ELRSR,	offsetof(struct vgic_cpu, vgic_elrsr));
   DEFINE(VGIC_CPU_APR,		offsetof(struct vgic_cpu, vgic_apr));
   DEFINE(VGIC_CPU_LR,		offsetof(struct vgic_cpu, vgic_lr));
-  DEFINE(VGIC_CPU_NR_LR,	offsetof(struct vgic_cpu, nr_lr));
+  DEFINE(VGIC_CPU_HW_CFG,	offsetof(struct vgic_cpu, hw_cfg));
   DEFINE(KVM_VTTBR,		offsetof(struct kvm, arch.vttbr));
   DEFINE(KVM_VGIC_VCTRL,	offsetof(struct kvm, arch.vgic.vctrl_base));
 #endif

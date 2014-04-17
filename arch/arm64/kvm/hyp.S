@@ -426,7 +426,7 @@ CPU_BE(	rev	w11, w11 )
 
 	/* Save list registers */
 	add	x2, x2, #GICH_LR0
-	ldr	w4, [x3, #VGIC_CPU_NR_LR]
+	ldr	w4, [x3, #VGIC_CPU_HW_CFG]
 	add	x3, x3, #VGIC_CPU_LR
 1:	ldr	w5, [x2], #4
 CPU_BE(	rev	w5, w5 )
@@ -465,7 +465,7 @@ CPU_BE(	rev	w6, w6 )
 
 	/* Restore list registers */
 	add	x2, x2, #GICH_LR0
-	ldr	w4, [x3, #VGIC_CPU_NR_LR]
+	ldr	w4, [x3, #VGIC_CPU_HW_CFG]
 	add	x3, x3, #VGIC_CPU_LR
 1:	ldr	w5, [x3], #4
 CPU_BE(	rev	w5, w5 )
