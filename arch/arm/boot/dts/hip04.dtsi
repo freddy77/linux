@@ -192,9 +192,11 @@
 			#interrupt-cells = <3>;
 			#address-cells = <0>;
 			interrupt-controller;
+			interrupts = <1 9 0xf04>;
 
 			/* gic dist base, gic cpu base */
-			reg = <0xc01000 0x1000>, <0xc02000 0x1000>;
+			reg = <0xc01000 0x1000>, <0xc02000 0x1000>,
+			      <0xc04000 0x2000>, <0xc06000 0x2000>;
 		};
 
 		sysctrl: sysctrl {
