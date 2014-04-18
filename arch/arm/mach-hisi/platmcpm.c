@@ -1,35 +1,21 @@
 /*
- * (Hisilicon's HiP04 SoC) flattened device tree enabled machine
- *
- * Copyright (c) 2013-2014 Hisilicon Ltd.
  * Copyright (c) 2013-2014 Linaro Ltd.
+ * Copyright (c) 2013-2014 Hisilicon Limited.
  *
- * Author: Haojian Zhuang <haojian.zhuang@linaro.org>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
-*/
-
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms and conditions of the GNU General Public License,
+ * version 2, as published by the Free Software Foundation.
+ */
 #include <linux/delay.h>
 #include <linux/io.h>
-#include <linux/irqchip/arm-gic.h>
 #include <linux/memblock.h>
 #include <linux/of_address.h>
-#include <linux/of_platform.h>
-#include <linux/reboot.h>
-#include <linux/slab.h>
 
-#include <asm/cp15.h>
 #include <asm/cputype.h>
+#include <asm/cp15.h>
 #include <asm/mcpm.h>
 
-#include <asm/mach/arch.h>
-#include <asm/mach/map.h>
-
-#define BOOTWRAPPER_PHYS		0x10c00000
-#define BOOTWRAPPER_MAGIC		0xa5a5a5a5
-#define BOOTWRAPPER_SIZE		0x00010000
+#include "core.h"
 
 /* bits definition in SC_CPU_RESET_REQ[x]/SC_CPU_RESET_DREQ[x]
  * 1 -- unreset; 0 -- reset
@@ -66,11 +52,21 @@
 #define HIP04_MAX_CLUSTERS		4
 #define HIP04_MAX_CPUS_PER_CLUSTER	4
 
-static void __iomem *relocation = NULL, *sysctrl = NULL, *fabric = NULL;
+#define POLL_MSEC	10
+#define TIMEOUT_MSEC	1000
+
+struct hip04_secondary_cpu_data {
+	u32	bootwrapper_phys;
+	u32	bootwrapper_size;
+	u32	bootwrapper_magic;
+	u32	relocation_entry;
+	u32	relocation_size;
+};
+
+static void __iomem *relocation, *sysctrl, *fabric;
 static int hip04_cpu_table[HIP04_MAX_CLUSTERS][HIP04_MAX_CPUS_PER_CLUSTER];
 static DEFINE_SPINLOCK(boot_lock);
-
-static void __iomem *gb3 = NULL;	/* gpio bank3 to control watchdog */
+static struct hip04_secondary_cpu_data hip04_boot;
 
 static bool hip04_cluster_down(unsigned int cluster)
 {
@@ -110,8 +106,8 @@ static int hip04_mcpm_power_up(unsigned int cpu, unsigned int cluster)
 		return -EINVAL;
 
 	spin_lock(&boot_lock);
-	writel_relaxed(BOOTWRAPPER_PHYS, relocation);
-	writel_relaxed(BOOTWRAPPER_MAGIC, relocation + 4);
+	writel_relaxed(hip04_boot.bootwrapper_phys, relocation);
+	writel_relaxed(hip04_boot.bootwrapper_magic, relocation + 4);
 	writel_relaxed(virt_to_phys(mcpm_entry_point), relocation + 8);
 	writel_relaxed(0, relocation + 12);
 
@@ -133,6 +129,7 @@ static int hip04_mcpm_power_up(unsigned int cpu, unsigned int cluster)
 	       CORE_DEBUG_RESET_BIT(cpu);
 	writel_relaxed(data, sysctrl + SC_CPU_RESET_DREQ(cluster));
 	spin_unlock(&boot_lock);
+	msleep(POLL_MSEC);
 
 	return 0;
 }
@@ -142,52 +139,9 @@ static void hip04_mcpm_power_down(void)
 	unsigned int mpidr, cpu, cluster;
 	unsigned int v;
 
-	spin_lock(&boot_lock);
-	spin_unlock(&boot_lock);
-
 	mpidr = read_cpuid_mpidr();
 	cpu = MPIDR_AFFINITY_LEVEL(mpidr, 0);
 	cluster = MPIDR_AFFINITY_LEVEL(mpidr, 1);
-
-	local_irq_disable();
-	gic_cpu_if_down();
-
-	__mcpm_cpu_down(cpu, cluster);
-
-	asm volatile(
-	"	mrc	p15, 0, %0, c1, c0, 0\n"
-	"	bic	%0, %0, %1\n"
-	"	mcr	p15, 0, %0, c1, c0, 0\n"
-	  : "=&r" (v)
-	  : "Ir" (CR_C)
-	  : "cc");
-
-	flush_cache_louis();
-
-	asm volatile(
-	/*
-	* Turn off coherency
-	*/
-	"	mrc	p15, 0, %0, c1, c0, 1\n"
-	"	bic	%0, %0, %1\n"
-	"	mcr	p15, 0, %0, c1, c0, 1\n"
-	: "=&r" (v)
-	: "Ir" (0x40)
-	: "cc");
-
-	isb();
-	dsb();
-
-#if 0
-	/* system hang when writing to SC_CPU_RESET_REQ(cluster) register */
-	data = CORE_RESET_BIT(cpu) | NEON_RESET_BIT(cpu);
-	writel_relaxed(data, sysctrl + SC_CPU_RESET_REQ(cluster));
-#endif
-}
-
-static int hip04_mcpm_power_down_finish(unsigned int cpu, unsigned int cluster)
-{
-	int ret = -EBUSY;
 
 	spin_lock(&boot_lock);
 	BUG_ON(__mcpm_cluster_state(cluster) != CLUSTER_UP);
@@ -198,10 +152,59 @@ static int hip04_mcpm_power_down_finish(unsigned int cpu, unsigned int cluster)
 		pr_err("Cluster %d CPU%d is still running\n", cluster, cpu);
 		goto out;
 	}
-	ret = 0;
+
+	__mcpm_cpu_down(cpu, cluster);
+	spin_unlock(&boot_lock);
+
+	asm volatile(
+	"	mrc	p15, 0, %0, c1, c0, 0\n"
+	"	bic	%0, %0, %1\n"
+	"	mcr	p15, 0, %0, c1, c0, 0\n"
+	  : "=&r" (v)
+	  : "Ir" (CR_C)
+	  :);
+
+	flush_cache_louis();
+
+	asm volatile(
+	/* Turn off coherency, disable SMP bit in ACTLR */
+	"	mrc	p15, 0, %0, c1, c0, 1\n"
+	"	bic	%0, %0, %1\n"
+	"	mcr	p15, 0, %0, c1, c0, 1\n"
+	: "=&r" (v)
+	: "Ir" (0x40)
+	:);
+
+	isb();
+	dsb();
+
+	while (true)
+		wfi();
+	return;
 out:
 	spin_unlock(&boot_lock);
-	return ret;
+}
+
+static int hip04_mcpm_wait_for_powerdown(unsigned int cpu, unsigned int cluster)
+{
+	unsigned int data, tries;
+
+	BUG_ON(cluster >= HIP04_MAX_CLUSTERS ||
+	       cpu >= HIP04_MAX_CPUS_PER_CLUSTER);
+
+	for (tries = 0; tries < TIMEOUT_MSEC / POLL_MSEC; tries++) {
+		data = readl_relaxed(sysctrl + SC_CPU_RESET_STATUS(cluster));
+		if (!(data & CORE_WFI_STATUS(cpu))) {
+			msleep(POLL_MSEC);
+			continue;
+		}
+		data = CORE_RESET_BIT(cpu) | NEON_RESET_BIT(cpu) | \
+		       CORE_DEBUG_RESET_BIT(cpu);
+		writel_relaxed(data, sysctrl + SC_CPU_RESET_REQ(cluster));
+		return 0;
+	}
+
+	return -ETIMEDOUT;
 }
 
 static void hip04_mcpm_powered_up(void)
@@ -219,7 +222,7 @@ static void hip04_mcpm_powered_up(void)
 static const struct mcpm_platform_ops hip04_mcpm_ops = {
 	.power_up		= hip04_mcpm_power_up,
 	.power_down		= hip04_mcpm_power_down,
-	.power_down_finish	= hip04_mcpm_power_down_finish,
+	.wait_for_powerdown	= hip04_mcpm_wait_for_powerdown,
 	.powered_up		= hip04_mcpm_powered_up,
 };
 
@@ -243,32 +246,70 @@ static bool __init hip04_cpu_table_init(void)
 
 static int __init hip04_mcpm_init(void)
 {
-	struct device_node *np;
+	struct device_node *np, *np_fab;
 	int ret = -ENODEV;
 
-	np = of_find_compatible_node(NULL, NULL, "hisilicon,hip04-mcpm");
-	if (!np) {
-		pr_err("failed to find hisilicon,hip04-mcpm node\n");
+	np = of_find_compatible_node(NULL, NULL, "hisilicon,sysctrl");
+	if (!np)
+		goto err;
+	np_fab = of_find_compatible_node(NULL, NULL, "hisilicon,hip04-fabric");
+	if (!np_fab)
+		goto err;
+
+	if (of_property_read_u32(np, "bootwrapper-phys",
+				 &hip04_boot.bootwrapper_phys)) {
+		pr_err("failed to get bootwrapper-phys\n");
+		ret = -EINVAL;
 		goto err;
 	}
-	relocation = of_iomap(np, 0);
+	if (of_property_read_u32(np, "bootwrapper-size",
+				 &hip04_boot.bootwrapper_size)) {
+		pr_err("failed to get bootwrapper-size\n");
+		ret = -EINVAL;
+		goto err;
+	}
+	if (of_property_read_u32(np, "bootwrapper-magic",
+				 &hip04_boot.bootwrapper_magic)) {
+		pr_err("failed to get bootwrapper-magic\n");
+		ret = -EINVAL;
+		goto err;
+	}
+	if (of_property_read_u32(np, "relocation-entry",
+				 &hip04_boot.relocation_entry)) {
+		pr_err("failed to get relocation-entry\n");
+		ret = -EINVAL;
+		goto err;
+	}
+	if (of_property_read_u32(np, "relocation-size",
+				 &hip04_boot.relocation_size)) {
+		pr_err("failed to get relocation-size\n");
+		ret = -EINVAL;
+		goto err;
+	}
+
+	relocation = ioremap(hip04_boot.relocation_entry,
+			     hip04_boot.relocation_size);
 	if (!relocation) {
-		pr_err("failed to get relocation space\n");
+		pr_err("failed to map relocation space\n");
 		ret = -ENOMEM;
 		goto err;
 	}
-	sysctrl = of_iomap(np, 1);
+	sysctrl = of_iomap(np, 0);
 	if (!sysctrl) {
 		pr_err("failed to get sysctrl base\n");
 		ret = -ENOMEM;
 		goto err_sysctrl;
 	}
-	fabric = of_iomap(np, 2);
+	fabric = of_iomap(np_fab, 0);
 	if (!fabric) {
 		pr_err("failed to get fabric base\n");
 		ret = -ENOMEM;
 		goto err_fabric;
 	}
+
+	memblock_reserve(hip04_boot.bootwrapper_phys,
+			 hip04_boot.bootwrapper_size);
+
 	if (!hip04_cpu_table_init())
 		return -EINVAL;
 	ret = mcpm_platform_register(&hip04_mcpm_ops);
@@ -291,70 +332,3 @@ bool __init hip04_smp_init_ops(void)
 	mcpm_smp_set_ops();
 	return true;
 }
-
-static const char *hip04_compat[] __initconst = {
-	"hisilicon,hip04-d01",
-	NULL,
-};
-
-static void __init hip04_init_machine(void)
-{
-	unsigned int data, mask;
-	of_platform_populate(NULL, of_default_bus_match_table, NULL, NULL);
-
-	gb3 = ioremap(0xe4003000, 0x1000);
-	if (!gb3) {
-		pr_err("failed to map GB3\n");
-		return;
-	}
-	mask = 0xffdfffff;
-	/* read GPIO3_SWPORT_DDR */
-	data = readl_relaxed(gb3 + 4);
-	if (!(data & ~mask)) {
-		/* switch GPIO direction from IN to OUT */
-		writel_relaxed(data | ~mask, gb3 + 4);
-	}
-	data = readl_relaxed(gb3);
-	/* write high to GPIO117 to disable watchdog */
-	writel_relaxed(data | ~mask, gb3);
-}
-
-static void hip04_restart(enum reboot_mode mode, const char *cmd)
-{
-	unsigned int data, mask;
-
-	if (!gb3) {
-		pr_err("GB3 isn't initialized\n");
-		return;
-	}
-	mask = 0xffdfffff;
-	/* read GPIO3_SWPORT_DDR */
-	data = readl_relaxed(gb3 + 4);
-	if (!(data & ~mask)) {
-		/* switch GPIO direction from IN to OUT */
-		writel_relaxed(data | ~mask, gb3 + 4);
-	}
-	data = readl_relaxed(gb3);
-	/* write low to GPIO117 */
-	writel_relaxed(data & mask, gb3);
-	udelay(100);
-	/* write high to GPIO117 to disable watchdog */
-	writel_relaxed(data | ~mask, gb3);
-	udelay(100);
-	/* write low to GPIO117 */
-	writel_relaxed(data & mask, gb3);
-	udelay(100);
-}
-
-static void __init hip04_reserve(void)
-{
-	memblock_reserve(BOOTWRAPPER_PHYS, BOOTWRAPPER_SIZE);
-}
-
-DT_MACHINE_START(HIP01, "Hisilicon HiP04 (Flattened Device Tree)")
-	.dt_compat	= hip04_compat,
-	.smp_init	= smp_init_ops(hip04_smp_init_ops),
-	.init_machine	= hip04_init_machine,
-	.restart	= hip04_restart,
-	.reserve	= hip04_reserve,
-MACHINE_END

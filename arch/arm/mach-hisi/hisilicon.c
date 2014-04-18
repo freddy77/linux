@@ -13,6 +13,7 @@
 
 #include <linux/clk-provider.h>
 #include <linux/clocksource.h>
+#include <linux/delay.h>
 #include <linux/irqchip.h>
 #include <linux/of_address.h>
 #include <linux/of_platform.h>
@@ -88,3 +89,67 @@ DT_MACHINE_START(HI3620, "Hisilicon Hi3620 (Flattened Device Tree)")
 	.smp		= smp_ops(hi3xxx_smp_ops),
 	.restart	= hi3xxx_restart,
 MACHINE_END
+
+#ifdef CONFIG_ARCH_HIP04
+static void __iomem *gb3 = NULL;	/* gpio bank3 to control watchdog */
+
+static const char *hip04_compat[] __initconst = {
+	"hisilicon,hip04-d01",
+	NULL,
+};
+
+static void __init hip04_init_machine(void)
+{
+	unsigned int data, mask;
+	of_platform_populate(NULL, of_default_bus_match_table, NULL, NULL);
+
+	gb3 = ioremap(0xe4003000, 0x1000);
+	if (!gb3) {
+		pr_err("failed to map GB3\n");
+		return;
+	}
+	mask = 0xffdfffff;
+	/* read GPIO3_SWPORT_DDR */
+	data = readl_relaxed(gb3 + 4);
+	if (!(data & ~mask)) {
+		/* switch GPIO direction from IN to OUT */
+		writel_relaxed(data | ~mask, gb3 + 4);
+	}
+	data = readl_relaxed(gb3);
+	/* write high to GPIO117 to disable watchdog */
+	writel_relaxed(data | ~mask, gb3);
+}
+
+static void hip04_restart(enum reboot_mode mode, const char *cmd)
+{
+	unsigned int data, mask;
+
+	if (!gb3) {
+		pr_err("GB3 isn't initialized\n");
+		return;
+	}
+	mask = 0xffdfffff;
+	/* read GPIO3_SWPORT_DDR */
+	data = readl_relaxed(gb3 + 4);
+	if (!(data & ~mask)) {
+		/* switch GPIO direction from IN to OUT */
+		writel_relaxed(data | ~mask, gb3 + 4);
+	}
+	data = readl_relaxed(gb3);
+	/* write low to GPIO117 */
+	writel_relaxed(data & mask, gb3);
+	udelay(100);
+	/* write high to GPIO117 to disable watchdog */
+	writel_relaxed(data | ~mask, gb3);
+	udelay(100);
+	/* write low to GPIO117 */
+	writel_relaxed(data & mask, gb3);
+	udelay(100);
+}
+
+DT_MACHINE_START(HIP04, "Hisilicon HiP04 (Flattened Device Tree)")
+	.dt_compat	= hip04_compat,
+	.smp_init	= smp_init_ops(hip04_smp_init_ops),
+	.restart	= hip04_restart,
+MACHINE_END
+#endif
