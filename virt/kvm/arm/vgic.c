@@ -825,10 +825,8 @@ static void vgic_update_state(struct kvm *kvm)
 	}
 }
 
-#define LR_CPUID(lr)	\
-	((arm_gic_im & ARM_GIC_IMPLEMENTATION) ? \
-	 ((lr) & GICH_LR_PHYSID_CPUID) >> GICH_LR_PHYSID_CPUID_SHIFT : \
-	 ((lr) & HIP04_GICH_LR_PHYSID_CPUID) >> GICH_LR_PHYSID_CPUID_SHIFT)
+#define LR_CPUID(lr)   \
+       (((lr) & GICH_LR_PHYSID_CPUID) >> GICH_LR_PHYSID_CPUID_SHIFT)
 #define MK_LR_PEND(src, irq)	\
 	(GICH_LR_PENDING_BIT | ((src) << GICH_LR_PHYSID_CPUID_SHIFT) | (irq))
 
@@ -1308,6 +1306,8 @@ static struct notifier_block vgic_cpu_nb = {
 	.notifier_call = vgic_cpu_notify,
 };
 
+extern unsigned int gich_apr, gich_lr0;
+
 int kvm_vgic_hyp_init(void)
 {
 	int ret;
@@ -1316,8 +1316,14 @@ int kvm_vgic_hyp_init(void)
 
 	vgic_node = of_find_compatible_node(NULL, NULL, "arm,cortex-a15-gic");
 	if (!vgic_node) {
-		kvm_err("error: no compatible vgic node in DT\n");
-		return -ENODEV;
+		vgic_node = of_find_compatible_node(NULL, NULL,
+						    "hisilicon,hip04-gic");
+		if (!vgic_node) {
+			kvm_err("error: no compatible vgic node in DT\n");
+			return -ENODEV;
+		}
+		gich_apr = HIP04_GICH_APR;
+		gich_lr0 = HIP04_GICH_LR0;
 	}
 
 	vgic_maint_irq = irq_of_parse_and_map(vgic_node, 0);

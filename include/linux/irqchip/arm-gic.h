@@ -46,6 +46,8 @@
 #define GICH_ELRSR1 			0x34
 #define GICH_APR			0xf0
 #define GICH_LR0			0x100
+#define HIP04_GICH_APR			0x70
+#define HIP04_GICH_LR0			0x80
 
 #define GICH_HCR_EN			(1 << 0)
 #define GICH_HCR_UIE			(1 << 1)
@@ -66,6 +68,7 @@
 struct device_node;
 
 extern struct irq_chip gic_arch_extn;
+extern unsigned int gich_apr, gich_lr0;
 
 void gic_init_bases(unsigned int, int, void __iomem *, void __iomem *,
 		    u32 offset, struct device_node *);
