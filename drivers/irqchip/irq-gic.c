@@ -41,7 +41,6 @@
 #include <linux/slab.h>
 #include <linux/irqchip/chained_irq.h>
 #include <linux/irqchip/arm-gic.h>
-#include <linux/irqchip/hip04-gic.h>
 
 #include <asm/irq.h>
 #include <asm/exception.h>
@@ -69,6 +68,8 @@ struct gic_chip_data {
 #ifdef CONFIG_GIC_NON_BANKED
 	void __iomem *(*get_base)(union gic_base *);
 #endif
+	u32 nr_cpu_if;
+	u32 nr_if_per_reg;
 };
 
 static DEFINE_RAW_SPINLOCK(irq_controller_lock);
@@ -80,10 +81,11 @@ static DEFINE_RAW_SPINLOCK(irq_controller_lock);
  *
  * Hisilicon HiP04 extends the number of CPU interface from 8 to 16.
  */
-#define MAX_NR_GIC_CPU_IF 16
-static u16 gic_cpu_map[MAX_NR_GIC_CPU_IF] __read_mostly;
-static int nr_gic_cpu_if = 8;	/* The standard GIC supports 8 CPUs */
-unsigned long arm_gic_im = ARM_GIC_IMPLEMENTATION;
+#define NR_GIC_CPU_IF	16
+static u16 gic_cpu_map[NR_GIC_CPU_IF] __read_mostly;
+
+/* GIC register is always 32-bit long whatever it's in ARM64 or ARM32 */
+#define GIC_REG_BITS	32
 
 /*
  * Supported arch specific GIC irq extension.
@@ -247,22 +249,50 @@ static int gic_retrigger(struct irq_data *d)
 }
 
 #ifdef CONFIG_SMP
+static inline u32 irq_to_core_offset(u32 i, u32 nr_cpu_if)
+{
+	if (nr_cpu_if == 8) {
+		/* ARM GIC, i / 4 * 4 */
+		return ((i >> 2) << 2);
+	}
+	/* HiP04 GIC (nr_cpu_if == 16), i / 2 * 4 */
+	return ((i >> 1) << 2);
+}
+
+static inline u32 irq_to_core_shift(u32 i, u32 nr_cpu_if)
+{
+	if (nr_cpu_if == 8) {
+		/* ARM GIC, i % 4 * 8 */
+		return ((i % 4) << 3);
+	}
+	/* HiP04 GIC (nr_cpu_if == 16), i % 2 * 16 */
+	return ((i % 2) << 4);
+}
+
+static inline u32 irq_to_core_mask(u32 i, u32 nr_cpu_if)
+{
+	u32 mask;
+	/* ARM GIC, nr_cpu_if == 8; HiP04 GIC, nr_cpu_if == 16 */
+	mask = (1 << nr_cpu_if) - 1;
+	return (mask << irq_to_core_shift(i, nr_cpu_if));
+}
+
 static int gic_set_affinity(struct irq_data *d, const struct cpumask *mask_val,
 			    bool force)
 {
 	void __iomem *reg;
-	unsigned int shift, step;
+	unsigned int i = gic_irq(d);
+	unsigned int shift = irq_to_core_shift(i, gic_data[0].nr_cpu_if);
 	unsigned int cpu = cpumask_any_and(mask_val, cpu_online_mask);
 	u32 val, mask, bit;
-	if (cpu >= nr_gic_cpu_if || cpu >= nr_cpu_ids)
+	if (cpu >= gic_data[0].nr_cpu_if || cpu >= nr_cpu_ids)
 		return -EINVAL;
 
-	step = BITS_PER_LONG / nr_gic_cpu_if;
-	shift = (gic_irq(d) % step) * nr_gic_cpu_if;
-	reg = gic_dist_base(d) + GIC_DIST_TARGET + (gic_irq(d) / step * 4);
+	reg = gic_dist_base(d) + GIC_DIST_TARGET +
+	      irq_to_core_offset(i, gic_data[0].nr_cpu_if);
 
 	raw_spin_lock(&irq_controller_lock);
-	mask = ((1 << nr_gic_cpu_if) - 1) << shift;
+	mask = irq_to_core_mask(i, gic_data[0].nr_cpu_if);
 	bit = gic_cpu_map[cpu] << shift;
 	val = readl_relaxed(reg) & ~mask;
 	writel_relaxed(val | bit, reg);
@@ -365,13 +395,12 @@ void __init gic_cascade_irq(unsigned int gic_nr, unsigned int irq)
 static u16 gic_get_cpumask(struct gic_chip_data *gic)
 {
 	void __iomem *base = gic_data_dist_base(gic);
-	u32 mask, i, j, step, nr;
+	u32 mask, i, j, nr_if = gic->nr_if_per_reg;
 
 	/* get the number of CPU fields in GIC_DIST_TARGET register */
-	step = BITS_PER_LONG / nr_gic_cpu_if;
-	for (i = mask = 0; i < 32; i += step) {
-		mask = readl_relaxed(base + GIC_DIST_TARGET + i / step * 4);
-		for (j = BITS_PER_LONG >> 1; j >= nr_gic_cpu_if; j >>= 1)
+	for (i = mask = 0; i < DIV_ROUND_UP(32, nr_if); i++) {
+		mask = readl_relaxed(base + GIC_DIST_TARGET + i * 4);
+		for (j = GIC_REG_BITS >> 1; j >= gic->nr_cpu_if; j >>= 1)
 			mask |= mask >> j;
 		if (mask)
 			break;
@@ -380,12 +409,16 @@ static u16 gic_get_cpumask(struct gic_chip_data *gic)
 	if (!mask)
 		pr_crit("GIC CPU mask not found - kernel will fail to boot.\n");
 
+	/* ARM GIC needs 8-bit cpu mask, HiP04 GIC needs 16-bit cpu mask. */
+	if (gic->nr_cpu_if == 8)
+		mask &= 0xff;
+
 	return mask;
 }
 
 static void __init gic_dist_init(struct gic_chip_data *gic)
 {
-	unsigned int i, step;
+	unsigned int i, nr_if = gic->nr_if_per_reg;
 	u32 cpumask;
 	unsigned int gic_irqs = gic->gic_irqs;
 	void __iomem *base = gic_data_dist_base(gic);
@@ -402,24 +435,25 @@ static void __init gic_dist_init(struct gic_chip_data *gic)
 	 * Set all global interrupts to this CPU only.
 	 */
 	cpumask = gic_get_cpumask(gic);
-	for (i = nr_gic_cpu_if; i < BITS_PER_LONG; i <<= 1)
+	for (i = gic->nr_cpu_if; i < GIC_REG_BITS; i <<= 1)
 		cpumask |= cpumask << i;
-	step = BITS_PER_LONG / nr_gic_cpu_if;
-	for (i = 32; i < gic_irqs; i += step)
-		writel_relaxed(cpumask, base + GIC_DIST_TARGET + i / step * 4);
+	for (i = 32 / nr_if; i < DIV_ROUND_UP(gic_irqs, nr_if); i++)
+		writel_relaxed(cpumask, base + GIC_DIST_TARGET + i * 4);
 
 	/*
 	 * Set priority on all global interrupts.
 	 */
-	for (i = 32; i < gic_irqs; i += 4)
-		writel_relaxed(0xa0a0a0a0, base + GIC_DIST_PRI + i * 4 / 4);
+	for (i = 32 / nr_if; i < DIV_ROUND_UP(gic_irqs, 4); i++)
+		writel_relaxed(0xa0a0a0a0, base + GIC_DIST_PRI + i * 4);
 
 	/*
 	 * Disable all interrupts.  Leave the PPI and SGIs alone
 	 * as these enables are banked registers.
 	 */
-	for (i = 32; i < gic_irqs; i += 32)
-		writel_relaxed(0xffffffff, base + GIC_DIST_ENABLE_CLEAR + i * 4 / 32);
+	i = 32 / GIC_REG_BITS;
+	for (; i < DIV_ROUND_UP(gic_irqs, GIC_REG_BITS); i++)
+		writel_relaxed(0xffffffff,
+			       base + GIC_DIST_ENABLE_CLEAR + i * 4);
 
 	writel_relaxed(1, base + GIC_DIST_CTRL);
 }
@@ -434,7 +468,7 @@ static void gic_cpu_init(struct gic_chip_data *gic)
 	/*
 	 * Get what the GIC says our CPU mask is.
 	 */
-	BUG_ON(cpu >= nr_gic_cpu_if);
+	BUG_ON(cpu >= gic->nr_cpu_if);
 	cpu_mask = gic_get_cpumask(gic);
 	gic_cpu_map[cpu] = cpu_mask;
 
@@ -442,7 +476,7 @@ static void gic_cpu_init(struct gic_chip_data *gic)
 	 * Clear our mask from the other map entries in case they're
 	 * still undefined.
 	 */
-	for (i = 0; i < nr_gic_cpu_if; i++)
+	for (i = 0; i < gic->nr_cpu_if; i++)
 		if (i != cpu)
 			gic_cpu_map[i] &= ~cpu_mask;
 
@@ -456,8 +490,8 @@ static void gic_cpu_init(struct gic_chip_data *gic)
 	/*
 	 * Set priority on PPI and SGI interrupts
 	 */
-	for (i = 0; i < 32; i += 4)
-		writel_relaxed(0xa0a0a0a0, dist_base + GIC_DIST_PRI + i * 4 / 4);
+	for (i = 0; i < DIV_ROUND_UP(32, 4); i++)
+		writel_relaxed(0xa0a0a0a0, dist_base + GIC_DIST_PRI + i * 4);
 
 	writel_relaxed(0xf0, base + GIC_CPU_PRIMASK);
 	writel_relaxed(1, base + GIC_CPU_CTRL);
@@ -478,9 +512,9 @@ void gic_cpu_if_down(void)
  */
 static void gic_dist_save(unsigned int gic_nr)
 {
-	unsigned int gic_irqs;
+	unsigned int gic_irqs, nr_if = gic_data[gic_nr].nr_if_per_reg;
 	void __iomem *dist_base;
-	int i, step;
+	int i;
 
 	if (gic_nr >= MAX_GIC_NR)
 		BUG();
@@ -495,8 +529,7 @@ static void gic_dist_save(unsigned int gic_nr)
 		gic_data[gic_nr].saved_spi_conf[i] =
 			readl_relaxed(dist_base + GIC_DIST_CONFIG + i * 4);
 
-	step = BITS_PER_LONG / nr_gic_cpu_if;
-	for (i = 0; i < DIV_ROUND_UP(gic_irqs, step); i++)
+	for (i = 0; i < DIV_ROUND_UP(gic_irqs, nr_if); i++)
 		gic_data[gic_nr].saved_spi_target[i] =
 			readl_relaxed(dist_base + GIC_DIST_TARGET + i * 4);
 
@@ -514,8 +547,8 @@ static void gic_dist_save(unsigned int gic_nr)
  */
 static void gic_dist_restore(unsigned int gic_nr)
 {
-	unsigned int gic_irqs;
-	unsigned int i, step;
+	unsigned int gic_irqs, nr_if = gic_data[gic_nr].nr_if_per_reg;
+	unsigned int i;
 	void __iomem *dist_base;
 
 	if (gic_nr >= MAX_GIC_NR)
@@ -537,8 +570,7 @@ static void gic_dist_restore(unsigned int gic_nr)
 		writel_relaxed(0xa0a0a0a0,
 			dist_base + GIC_DIST_PRI + i * 4);
 
-	step = BITS_PER_LONG / nr_gic_cpu_if;
-	for (i = 0; i < DIV_ROUND_UP(gic_irqs, step); i++)
+	for (i = 0; i < DIV_ROUND_UP(gic_irqs, nr_if); i++)
 		writel_relaxed(gic_data[gic_nr].saved_spi_target[i],
 			dist_base + GIC_DIST_TARGET + i * 4);
 
@@ -678,8 +710,14 @@ void gic_raise_softirq(const struct cpumask *mask, unsigned int irq)
 	 */
 	dsb();
 
-	/* this always happens on GIC0 */
-	writel_relaxed(map << (8 + 16 - nr_gic_cpu_if) | irq,
+	/*
+	 * CPUTargetList -- bit[23:16] in GIC_DIST_SOFTINT in ARM GIC.
+	 *                  bit[23:8] in HIP04_GIC_DIST_SOFTINT in HiP04 GIC.
+	 * NSATT -- bit[15] in GIC_DIST_SOFTINT in ARM GIC.
+	 *          bit[7] in HIP04_GIC_DIST_SOFTINT in HiP04 GIC.
+	 * this always happens on GIC0
+	 */
+	writel_relaxed(map << (16 + 8 - gic_data[0].nr_cpu_if) | irq,
 		       gic_data_dist_base(&gic_data[0]) + GIC_DIST_SOFTINT);
 	raw_spin_unlock_irqrestore(&irq_controller_lock, flags);
 }
@@ -694,10 +732,11 @@ void gic_raise_softirq(const struct cpumask *mask, unsigned int irq)
  */
 void gic_send_sgi(unsigned int cpu_id, unsigned int irq)
 {
-	BUG_ON(cpu_id >= nr_gic_cpu_if);
+	BUG_ON(cpu_id >= gic_data[0].nr_cpu_if);
 	cpu_id = 1 << cpu_id;
 	/* this always happens on GIC0 */
-	writel_relaxed((cpu_id << 16) | irq, gic_data_dist_base(&gic_data[0]) + GIC_DIST_SOFTINT);
+	writel_relaxed((cpu_id << (16 + 8 - gic_data[0].nr_cpu_if)) | irq,
+		       gic_data_dist_base(&gic_data[0]) + GIC_DIST_SOFTINT);
 }
 
 /*
@@ -713,7 +752,7 @@ int gic_get_cpu_id(unsigned int cpu)
 {
 	unsigned int cpu_bit;
 
-	if (cpu >= nr_gic_cpu_if)
+	if (cpu >= gic_data[0].nr_cpu_if)
 		return -1;
 	cpu_bit = gic_cpu_map[cpu];
 	if (cpu_bit & (cpu_bit - 1))
@@ -784,10 +823,10 @@ void gic_migrate_target(unsigned int new_cpu_id)
 	 */
 	for (i = 0; i < 16; i += 4) {
 		int j;
-		val = readl_relaxed(dist_base + GIC_DIST_SGI_PENDING_SET + i);
+		val = readl_relaxed(dist_base + GIC_DIST_PENDING_SET + i);
 		if (!val)
 			continue;
-		writel_relaxed(val, dist_base + GIC_DIST_SGI_PENDING_CLEAR + i);
+		writel_relaxed(val, dist_base + GIC_DIST_PENDING_CLEAR + i);
 		for (j = i; j < i + 4; j++) {
 			if (val & 0xff)
 				writel_relaxed((1 << (new_cpu_id + 16)) | j,
@@ -894,6 +933,7 @@ void __init gic_init_bases(unsigned int gic_nr, int irq_start,
 	irq_hw_number_t hwirq_base;
 	struct gic_chip_data *gic;
 	int gic_irqs, irq_base, i;
+	int max_nr_irq;
 
 	BUG_ON(gic_nr >= MAX_GIC_NR);
 
@@ -929,12 +969,23 @@ void __init gic_init_bases(unsigned int gic_nr, int irq_start,
 		gic_set_base_accessor(gic, gic_get_common_base);
 	}
 
+	if (of_device_is_compatible(node, "hisilicon,hip04-gic")) {
+		/* HiP04 GIC supports 16 CPUs at most */
+		gic->nr_cpu_if = 16;
+		max_nr_irq = 510;
+	} else {
+		/* ARM/Qualcomm GIC supports 8 CPUs at most */
+		gic->nr_cpu_if = 8;
+		max_nr_irq = 1020;
+	}
+	gic->nr_if_per_reg = GIC_REG_BITS / gic->nr_cpu_if;
+
 	/*
 	 * Initialize the CPU interface map to all CPUs.
 	 * It will be refined as each CPU probes its ID.
 	 */
-	for (i = 0; i < nr_gic_cpu_if; i++)
-		gic_cpu_map[i] = (1 << MAX_NR_GIC_CPU_IF) - 1;
+	for (i = 0; i < gic->nr_cpu_if; i++)
+		gic_cpu_map[i] = (1 << gic->nr_cpu_if) - 1;
 
 	/*
 	 * For primary GICs, skip over SGIs.
@@ -950,12 +1001,13 @@ void __init gic_init_bases(unsigned int gic_nr, int irq_start,
 
 	/*
 	 * Find out how many interrupts are supported.
-	 * The GIC only supports up to 1020 interrupt sources.
+	 * The ARM/Qualcomm GIC only supports up to 1020 interrupt sources.
+	 * The HiP04 GIC only supports up to 510 interrupt sources.
 	 */
 	gic_irqs = readl_relaxed(gic_data_dist_base(gic) + GIC_DIST_CTR) & 0x1f;
 	gic_irqs = (gic_irqs + 1) * 32;
-	if (gic_irqs > 1020)
-		gic_irqs = 1020;
+	if (gic_irqs > max_nr_irq)
+		gic_irqs = max_nr_irq;
 	gic->gic_irqs = gic_irqs;
 
 	gic_irqs -= hwirq_base; /* calculate # of irqs to allocate */
@@ -995,12 +1047,6 @@ int __init gic_of_init(struct device_node *node, struct device_node *parent)
 
 	if (WARN_ON(!node))
 		return -ENODEV;
-
-	/* HiP04 supports 16 CPUs at most */
-	if (of_device_is_compatible(node, "hisilicon,hip04-gic")) {
-		nr_gic_cpu_if = 16;
-		arm_gic_im = HIP04_GIC_IMPLEMENTATION;
-	}
 
 	dist_base = of_iomap(node, 0);
 	WARN(!dist_base, "unable to map gic dist registers\n");
