@@ -26,7 +26,6 @@
 #include <linux/of_irq.h>
 
 #include <linux/irqchip/arm-gic.h>
-#include <linux/irqchip/hip04-gic.h>
 
 #include <asm/kvm_emulate.h>
 #include <asm/kvm_arm.h>
