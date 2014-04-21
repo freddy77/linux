@@ -150,6 +150,7 @@ static void hip04_restart(enum reboot_mode mode, const char *cmd)
 DT_MACHINE_START(HIP04, "Hisilicon HiP04 (Flattened Device Tree)")
 	.dt_compat	= hip04_compat,
 	.smp_init	= smp_init_ops(hip04_smp_init_ops),
+	.init_machine	= hip04_init_machine,
 	.restart	= hip04_restart,
 MACHINE_END
 #endif
