@@ -1,5 +1,4 @@
 #include <linux/irqchip/arm-gic.h>
-#include <linux/irqchip/hip04-gic.h>
 
 #define VCPU_USR_REG(_reg_nr)	(VCPU_USR_REGS + (_reg_nr * 4))
 #define VCPU_USR_SP		(VCPU_USR_REG(13))
@@ -412,11 +411,9 @@ vcpu	.req	r0		@ vcpu pointer always in r0
 	ldr	r7, [r2, #GICH_EISR1]
 	ldr	r8, [r2, #GICH_ELRSR0]
 	ldr	r9, [r2, #GICH_ELRSR1]
-	/* The GICH_APR offset is different between ARM_GIC and HIP04_GIC */
-	ldr	r10, =BSYM(arm_gic_im)
-	tst	r10, #ARM_GIC_IMPLEMENTATION
-	ldreq	r10, [r2, #GICH_APR]
-	ldrne	r10, [r2, #HIP04_GICH_APR]
+	ldr	r10, =gich_apr
+	ldr	r10, [r10]
+	ldr	r10, [r2, r10]
 
 	str	r3, [r11, #VGIC_CPU_HCR]
 	str	r4, [r11, #VGIC_CPU_VMCR]
@@ -432,10 +429,9 @@ vcpu	.req	r0		@ vcpu pointer always in r0
 	str	r5, [r2, #GICH_HCR]
 
 	/* Save list registers */
-	ldr	r10, =BSYM(arm_gic_im)
-	tst	r10, #ARM_GIC_IMPLEMENTATION
-	addeq	r2, r2, #GICH_LR0
-	addne	r2, r2, #HIP04_GICH_LR0
+	ldr	r10, =gich_lr0
+	ldr	r10, [r10]
+	add	r2, r2, r10
 	add	r3, r11, #VGIC_CPU_LR
 	ldr	r4, [r11, #VGIC_CPU_NR_LR]
 1:	ldr	r6, [r2], #4
@@ -469,10 +465,14 @@ vcpu	.req	r0		@ vcpu pointer always in r0
 
 	str	r3, [r2, #GICH_HCR]
 	str	r4, [r2, #GICH_VMCR]
-	str	r8, [r2, #GICH_APR]
+	ldr	r6, =gich_apr
+	ldr	r6, [r6]
+	str	r8, [r2, r6]
 
 	/* Restore list registers */
-	add	r2, r2, #GICH_LR0
+	ldr	r6, =gich_lr0
+	ldr	r6, [r6]
+	add	r2, r2, r6
 	add	r3, r11, #VGIC_CPU_LR
 	ldr	r4, [r11, #VGIC_CPU_NR_LR]
 1:	ldr	r6, [r3], #4
@@ -621,3 +621,10 @@ vcpu	.req	r0		@ vcpu pointer always in r0
 .macro load_vcpu
 	mrc	p15, 4, vcpu, c13, c0, 2	@ HTPIDR
 .endm
+
+	.global gich_apr
+gich_apr:
+	.long	GICH_APR
+	.global gich_lr0
+gich_lr0:
+	.long	GICH_LR0

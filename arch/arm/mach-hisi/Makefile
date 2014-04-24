@@ -1,8 +1,7 @@
 #
 # Makefile for Hisilicon processors family
 #
-
-obj-$(CONFIG_ARCH_HI3xxx)	+= hisilicon.o
-obj-$(CONFIG_ARCH_HIP04)	+= hip04.o
+obj-y	:= hisilicon.o
 obj-$(CONFIG_SMP)		+= platsmp.o
 obj-$(CONFIG_HOTPLUG_CPU)	+= hotplug.o
+obj-$(CONFIG_MCPM)		+= platmcpm.o
