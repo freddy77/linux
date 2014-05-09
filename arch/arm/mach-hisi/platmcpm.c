@@ -134,7 +134,6 @@ static int hip04_mcpm_power_up(unsigned int cpu, unsigned int cluster)
 	       CORE_DEBUG_RESET_BIT(cpu);
 	writel_relaxed(data, sysctrl + SC_CPU_RESET_DREQ(cluster));
 	spin_unlock_irq(&boot_lock);
-	msleep(POLL_MSEC);
 
 	return 0;
 }
