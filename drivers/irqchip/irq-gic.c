@@ -720,9 +720,9 @@ static void gic_raise_softirq(const struct cpumask *mask, unsigned int irq)
 
 	/*
 	 * Ensure that stores to Normal memory are visible to the
-	 * other CPUs before they observe us issuing the IPI.
+	 * other CPUs before issuing the IPI.
 	 */
-	dmb(ishst);
+	dsb();
 
 	/*
 	 * CPUTargetList -- bit[23:16] in GIC_DIST_SOFTINT in ARM GIC.
