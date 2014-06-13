@@ -13,150 +13,156 @@
 #include <linux/platform_device.h>
 #include <linux/interrupt.h>
 #include <linux/of_address.h>
-#include <linux/dmapool.h>
 #include <linux/phy.h>
 #include <linux/of_mdio.h>
+#include <linux/of_net.h>
+#include <linux/mfd/syscon.h>
+#include <linux/regmap.h>
 
-#define PPE_CFG_RX_CFF_ADDR	0x100
-#define PPE_CFG_POOL_GRP	0x300
-#define PPE_CFG_RX_BUF_SIZE	0x400
-#define PPE_CFG_RX_FIFO_SIZE	0x500
-#define PPE_CURR_BUF_CNT_REG	0xa200
+#define PPE_CFG_RX_ADDR			0x100
+#define PPE_CFG_POOL_GRP		0x300
+#define PPE_CFG_RX_BUF_SIZE		0x400
+#define PPE_CFG_RX_FIFO_SIZE		0x500
+#define PPE_CURR_BUF_CNT		0xa200
 
-#define GE_DUPLEX_TYPE		0x8
-#define GE_PORT_MODE		0x40
-#define GE_PORT_EN		0x44
-#define GE_MODE_CHANGE_EN	0x1b4
-#define GE_STATION_MAC_ADDRESS	0x210
-#define PPE_CFG_TX_PKT_BD_ADDR	0x420
-#define PPE_CFG_RX_CTRL_REG	0x428
-#define PPE_CFG_QOS_VMID_GEN	0x500
-#define PPE_CFG_RX_PKT_INT	0x538
-#define PPE_INTEN		0x600
-#define PPE_INTSTS		0x608
-#define PPE_RINT		0x604
-#define PPE_CFG_STS_MODE	0x700
-#define PPE_HIS_RX_PKT_CNT	0x804
-
-#define GE_MAX_FRM_SIZE_REG	0x3c
-#define GE_SHORT_RUNTS_THR_REG	0x50
-#define GE_TX_LOCAL_PAGE_REG	0x5c
-#define GE_TRANSMIT_CONTROL_REG	0x60
-#define GE_CF_CRC_STRIP_REG	0x1b0
-#define GE_RECV_CONTROL_REG	0x1e0
+#define GE_DUPLEX_TYPE			0x8
+#define GE_MAX_FRM_SIZE_REG		0x3c
+#define GE_PORT_MODE			0x40
+#define GE_PORT_EN			0x44
+#define GE_SHORT_RUNTS_THR_REG		0x50
+#define GE_TX_LOCAL_PAGE_REG		0x5c
+#define GE_TRANSMIT_CONTROL_REG		0x60
+#define GE_CF_CRC_STRIP_REG		0x1b0
+#define GE_MODE_CHANGE_EN		0x1b4
+#define GE_RECV_CONTROL_REG		0x1e0
+#define GE_STATION_MAC_ADDRESS		0x210
+#define PPE_CFG_TX_PKT_BD_ADDR		0x420
 #define PPE_CFG_MAX_FRAME_LEN_REG	0x408
-#define PPE_CFG_BUS_CTRL_REG	0x424
-#define PPE_CFG_RX_PKT_MODE_REG	0x438
-#define GMAC_PPE_RX_PKT_MAX_LEN  (379)
-#define GMAC_MAX_PKT_LEN         1516
+#define PPE_CFG_BUS_CTRL_REG		0x424
+#define PPE_CFG_RX_CTRL_REG		0x428
+#define PPE_CFG_RX_PKT_MODE_REG		0x438
+#define PPE_CFG_QOS_VMID_GEN		0x500
+#define PPE_CFG_RX_PKT_INT		0x538
+#define PPE_INTEN			0x600
+#define PPE_INTSTS			0x608
+#define PPE_RINT			0x604
+#define PPE_CFG_STS_MODE		0x700
+#define PPE_HIS_RX_PKT_CNT		0x804
 
-/* REG_INTERRUPT_MASK */
-#define RCV_INT			BIT(10)
-#define RCV_NOBUF		BIT(8)
-#define DEF_INT_MASK		0x41fdf
+/* REG_INTERRUPT */
+#define RCV_INT				BIT(10)
+#define RCV_NOBUF			BIT(8)
+#define DEF_INT_MASK			(RCV_INT | RCV_NOBUF)
 
-#define RX_DESC_NUM		64
-#define TX_DESC_NUM		64
-#define TX_NEXT(N)		(((N) + 1) & (TX_DESC_NUM-1))
-#define RX_NEXT(N)		(((N) + 1) & (RX_DESC_NUM-1))
+#define RX_DESC_NUM			64
+#define TX_DESC_NUM			64
+#define TX_NEXT(N)			(((N) + 1) & (TX_DESC_NUM-1))
+#define RX_NEXT(N)			(((N) + 1) & (RX_DESC_NUM-1))
 
-#define DESC_DEF_CFG		0x14
-#define RX_BUF_SIZE		1600
-#define TX_TIMEOUT		(6 * HZ)
-#define DRV_NAME		"hip04-ether"
+#define GMAC_PPE_RX_PKT_MAX_LEN		379
+#define GMAC_MAX_PKT_LEN		1516
+#define DESC_DEF_CFG			0x14
+#define RX_BUF_SIZE			1600
+#define RX_PKT_ERR			0x3
+#define TX_TIMEOUT			(6 * HZ)
+#define RECLAIM_PERIOD			HZ
 
-#define OBSOLETE_BUFFER
+#define DRV_NAME			"hip04-ether"
 
 struct tx_desc {
 	u32 send_addr;
+	u16 reserved_16;
 	u16 send_size;
-	u16 reserved[3];
+	u32 reserved_32;
 	u32 cfg;
 	u32 wb_addr;
-};
+} ____cacheline_aligned;
 
 struct rx_desc {
-	u16 pkt_len;
 	u16 reserved_16;
-	u32 reserve[8];		/* simplified */
+	u16 pkt_len;
+	u32 reserve1[3];
+	u32 pkt_err;
+	u32 reserve2[4];
 };
 
 struct hip04_priv {
 	void __iomem *base;
+	int phy_mode;
+	int chan;
 	unsigned int port;
 	unsigned int speed;
 	unsigned int duplex;
-	unsigned int id;
 	unsigned int reg_inten;
 
 	struct napi_struct napi;
 	struct net_device *ndev;
-	struct dma_pool *desc_pool;
 
+	struct tx_desc *tx_desc;
+	dma_addr_t tx_desc_dma;
 	struct sk_buff *tx_skb[TX_DESC_NUM];
-	struct tx_desc *td_ring[TX_DESC_NUM];
-	dma_addr_t td_phys[TX_DESC_NUM];
-	spinlock_t txlock;
+	dma_addr_t tx_phys[TX_DESC_NUM];
+	spinlock_t lock;
 	unsigned int tx_head;
 	unsigned int tx_tail;
 	unsigned int tx_count;
 
-	struct sk_buff *rx_skb[RX_DESC_NUM];
 	unsigned char *rx_buf[RX_DESC_NUM];
+	dma_addr_t rx_phys[RX_DESC_NUM];
 	unsigned int rx_head;
 	unsigned int rx_buf_size;
 
 	struct device_node *phy_node;
 	struct phy_device *phy;
+	struct regmap *map;
+	struct timer_list txtimer;
+	struct work_struct tx_timeout_task;
 };
 
-static void __iomem *ppebase;
-
-static void hip04_config_port(struct hip04_priv *priv, u32 speed, u32 duplex)
+static void hip04_config_port(struct net_device *ndev, u32 speed, u32 duplex)
 {
-	u32 val, reg;
+	struct hip04_priv *priv = netdev_priv(ndev);
+	u32 val;
 
 	priv->speed = speed;
 	priv->duplex = duplex;
 
-	switch (speed) {
-	case SPEED_1000:
-		reg = 8;
-		break;
-	case SPEED_100:
-		if (!priv->id)
-			reg = 1;
+	switch (priv->phy_mode) {
+	case PHY_INTERFACE_MODE_SGMII:
+		if (speed == SPEED_1000)
+			val = 8;
+		else if (speed == SPEED_100)
+			val = 7;
 		else
-			reg = 7;
+			val = 6;	/* SPEED_10 */
+		break;
+	case PHY_INTERFACE_MODE_MII:
+		if (speed == SPEED_100)
+			val = 1;
+		else
+			val = 0;	/* SPEED_10 */
 		break;
 	default:
-		reg = 0;
+		netdev_warn(ndev, "not supported mode\n");
+		val = 0;
 		break;
 	}
-	val = readl_relaxed(priv->base + GE_PORT_MODE);
-	val &= ~(0xf);
-	val |= reg;
 	writel_relaxed(val, priv->base + GE_PORT_MODE);
 
-	reg = (duplex) ? BIT(0) : 0;
-	val = readl_relaxed(priv->base + GE_DUPLEX_TYPE);
-	val &= ~(0x1);
-	val |= reg;
+	val = (duplex) ? BIT(0) : 0;
 	writel_relaxed(val, priv->base + GE_DUPLEX_TYPE);
 
-	val = readl_relaxed(priv->base + GE_MODE_CHANGE_EN);
-	val |= BIT(0);
+	val = BIT(0);
 	writel_relaxed(val, priv->base + GE_MODE_CHANGE_EN);
 }
 
 static void hip04_reset_ppe(struct hip04_priv *priv)
 {
-	u32 val;
+	u32 val, tmp;
 
 	do {
-		val =
-		readl_relaxed(ppebase + priv->port * 4 + PPE_CURR_BUF_CNT_REG);
-		readl_relaxed(ppebase + priv->port * 4 + PPE_CFG_RX_CFF_ADDR);
+		regmap_read(priv->map, priv->port * 4 + PPE_CURR_BUF_CNT, &val);
+		regmap_read(priv->map, priv->port * 4 + PPE_CFG_RX_ADDR, &tmp);
 	} while (val & 0xfff);
 }
 
@@ -165,145 +171,126 @@ static void hip04_config_fifo(struct hip04_priv *priv)
 	u32 val;
 
 	val = readl_relaxed(priv->base + PPE_CFG_STS_MODE);
-	val |= BIT(12);		/* PPE_HIS_RX_PKT_CNT read clear */
+	val |= BIT(12);			/* PPE_HIS_RX_PKT_CNT read clear */
 	writel_relaxed(val, priv->base + PPE_CFG_STS_MODE);
 
-	val = readl_relaxed(ppebase + priv->port * 4 + PPE_CFG_POOL_GRP);
-	val |= BIT(priv->port);
-	writel_relaxed(val, ppebase + priv->port * 4 + PPE_CFG_POOL_GRP);
+	val = BIT(priv->port);
+	regmap_write(priv->map, priv->port * 4 + PPE_CFG_POOL_GRP, val);
 
-	val = readl_relaxed(priv->base + PPE_CFG_QOS_VMID_GEN);
-	val &= ~(0x7f00);		/* [14:8]*/
+	val = priv->port << 8;
 	val |= BIT(14);
-	val |= priv->port << 8;
 	writel_relaxed(val, priv->base + PPE_CFG_QOS_VMID_GEN);
 
-	val = readl_relaxed(ppebase + priv->port * 4 + PPE_CFG_RX_BUF_SIZE);
-	val &= ~(0xffff);		/* [15:0]*/
-	val |= RX_BUF_SIZE;
-	writel_relaxed(val, ppebase + priv->port * 4 + PPE_CFG_RX_BUF_SIZE);
+	val = RX_BUF_SIZE;
+	regmap_write(priv->map, priv->port * 4 + PPE_CFG_RX_BUF_SIZE, val);
 
-	val = readl_relaxed(ppebase + priv->port * 4 + PPE_CFG_RX_FIFO_SIZE);
-	val &= ~(0xfff0fff);			/* [27:16] [11:0]*/
-	val |= RX_DESC_NUM << 16;		/* depth */
-	val |= BIT(11);				/* seq: first set first ues */
-	val |= RX_DESC_NUM * priv->id;		/* start_addr */
-	writel_relaxed(val, ppebase + priv->port * 4 + PPE_CFG_RX_FIFO_SIZE);
+	val = RX_DESC_NUM << 16;	/* depth */
+	val |= BIT(11);			/* seq: first set first ues */
+	val |= RX_DESC_NUM * priv->chan;	/* start_addr */
+	regmap_write(priv->map, priv->port * 4 + PPE_CFG_RX_FIFO_SIZE, val);
 
 	/* pkt store format */
-	val = readl_relaxed(priv->base + PPE_CFG_RX_CTRL_REG);
-	val &= ~(0x1f80f);		/* [16:11] [3:0]*/
-	val |= 2 << 11;			/* align */
+	val = NET_IP_ALIGN << 11;	/* align */
 	writel_relaxed(val, priv->base + PPE_CFG_RX_CTRL_REG);
 
 	/* following cfg required for 1000M */
 	/* pkt mode */
-	val = readl_relaxed(priv->base + PPE_CFG_RX_PKT_MODE_REG);
-	val &= ~(0xc0000);		/* [19:18] */
-	val |= 1 << 18;			/* align */
+	val = BIT(18);			/* align */
 	writel_relaxed(val, priv->base + PPE_CFG_RX_PKT_MODE_REG);
 
 	/* set bus ctrl */
-	val = 1 << 14;	/* buffer locally release */
-	val |= 1;	/* big endian */
+	val = BIT(14);			/* buffer locally release */
+	val |= BIT(0);			/* big endian */
 	writel_relaxed(val, priv->base + PPE_CFG_BUS_CTRL_REG);
 
 	/* set max pkt len, curtail if exceed */
-	val = readl_relaxed(priv->base + PPE_CFG_MAX_FRAME_LEN_REG);
-	val &= ~(0x3fff);		/* [13:0]*/
-	val |= GMAC_PPE_RX_PKT_MAX_LEN;	/* max buffer len */
+	val = GMAC_PPE_RX_PKT_MAX_LEN;	/* max pkt len */
 	writel_relaxed(val, priv->base + PPE_CFG_MAX_FRAME_LEN_REG);
 
 	/* set max len of each pkt */
-	val = readl_relaxed(priv->base + GE_MAX_FRM_SIZE_REG);
-	val &= ~(0xffff);		/* [15:0]*/
-	val |= GMAC_MAX_PKT_LEN;	/* max buffer len */
+	val = GMAC_MAX_PKT_LEN;		/* max buffer len */
 	writel_relaxed(val, priv->base + GE_MAX_FRM_SIZE_REG);
 
 	/* set min len of each pkt */
-	val = readl_relaxed(priv->base + GE_SHORT_RUNTS_THR_REG);
-	val |= 31;			/* min buffer len */
+	val = 31;			/* min buffer len */
 	writel_relaxed(val, priv->base + GE_SHORT_RUNTS_THR_REG);
 
 	/* tx */
 	val = readl_relaxed(priv->base + GE_TRANSMIT_CONTROL_REG);
-	val |= 1 << 5;			/* tx auto neg */
-	val |= 1 << 6;			/* tx add crc */
-	val |= 1 << 7;			/* tx short pad through */
+	val |= BIT(5);			/* tx auto neg */
+	val |= BIT(6);			/* tx add crc */
+	val |= BIT(7);			/* tx short pad through */
 	writel_relaxed(val, priv->base + GE_TRANSMIT_CONTROL_REG);
 
 	/* rx crc */
-	val = readl_relaxed(priv->base + GE_CF_CRC_STRIP_REG);
-	val |= 1;			/* rx strip crc */
+	val = BIT(0);			/* rx strip crc */
 	writel_relaxed(val, priv->base + GE_CF_CRC_STRIP_REG);
 
 	/* rx */
 	val = readl_relaxed(priv->base + GE_RECV_CONTROL_REG);
-	val |= 1 << 3;			/* rx strip pad */
-	val |= 1 << 4;			/* run pkt en */
+	val |= BIT(3);			/* rx strip pad */
+	val |= BIT(4);			/* run pkt en */
 	writel_relaxed(val, priv->base + GE_RECV_CONTROL_REG);
 
 	/* auto neg control */
-	val = readl_relaxed(priv->base + GE_TX_LOCAL_PAGE_REG);
-	val |= 1;
-	val &= ~(0x1e0);	/* [8:5] = 0*/
-	val &= ~(0x3c0);	/* [13:10] = 0*/
-	val &= ~(0x8000);	/* [15] = 0*/
+	val = BIT(0);
 	writel_relaxed(val, priv->base + GE_TX_LOCAL_PAGE_REG);
 }
 
-static void hip04_mac_enable(struct net_device *ndev, bool enable)
+static void hip04_mac_enable(struct net_device *ndev)
 {
 	struct hip04_priv *priv = netdev_priv(ndev);
 	u32 val;
 
-	if (enable) {
-		/* enable tx & rx */
-		val = readl_relaxed(priv->base + GE_PORT_EN);
-		val |= 0x1 << 1;	/* rx*/
-		val |= 0x1 << 2;	/* tx*/
-		writel_relaxed(val, priv->base + GE_PORT_EN);
+	/* enable tx & rx */
+	val = readl_relaxed(priv->base + GE_PORT_EN);
+	val |= BIT(1);		/* rx */
+	val |= BIT(2);		/* tx */
+	writel_relaxed(val, priv->base + GE_PORT_EN);
 
-		/* enable interrupt */
-		priv->reg_inten = DEF_INT_MASK;
-		writel_relaxed(priv->reg_inten, priv->base + PPE_INTEN);
+	/* clear rx int */
+	val = RCV_INT;
+	writel_relaxed(val, priv->base + PPE_RINT);
 
-		/* clear rx int */
-		val = RCV_INT;
-		writel_relaxed(val, priv->base + PPE_RINT);
+	/* config recv int */
+	val = BIT(6);		/* int threshold 1 package */
+	val |= 0x4;		/* recv timeout */
+	writel_relaxed(val, priv->base + PPE_CFG_RX_PKT_INT);
 
-		/* config recv int*/
-		val = readl_relaxed(priv->base + PPE_CFG_RX_PKT_INT);
-		val &= ~(0x0fff);	/* [11:0] */
-		val |= 0x1 << 6;	/* int threshold 1 package */
-		val |= 0x4;		/* recv timeout */
-		writel_relaxed(val, priv->base + PPE_CFG_RX_PKT_INT);
-	} else {
-		/* disable int */
-		priv->reg_inten &= ~(RCV_INT | RCV_NOBUF);
-		writel_relaxed(priv->reg_inten, priv->base + PPE_INTEN);
+	/* enable interrupt */
+	priv->reg_inten = DEF_INT_MASK;
+	writel_relaxed(priv->reg_inten, priv->base + PPE_INTEN);
+}
 
-		/* disable tx & rx */
-		val = readl_relaxed(priv->base + GE_PORT_EN);
-		val &= ~(0x1 << 1);	/* rx*/
-		val &= ~(0x1 << 2);	/* tx*/
-		writel_relaxed(val, priv->base + GE_PORT_EN);
-	}
+static void hip04_mac_disable(struct net_device *ndev)
+{
+	struct hip04_priv *priv = netdev_priv(ndev);
+	u32 val;
+
+	/* disable int */
+	priv->reg_inten &= ~(RCV_INT | RCV_NOBUF);
+	writel_relaxed(priv->reg_inten, priv->base + PPE_INTEN);
+
+	/* disable tx & rx */
+	val = readl_relaxed(priv->base + GE_PORT_EN);
+	val &= ~(BIT(1));	/* rx */
+	val &= ~(BIT(2));	/* tx */
+	writel_relaxed(val, priv->base + GE_PORT_EN);
 }
 
 static void hip04_set_xmit_desc(struct hip04_priv *priv, dma_addr_t phys)
 {
-	writel_relaxed(phys, priv->base + PPE_CFG_TX_PKT_BD_ADDR);
+	writel(phys, priv->base + PPE_CFG_TX_PKT_BD_ADDR);
 }
 
 static void hip04_set_recv_desc(struct hip04_priv *priv, dma_addr_t phys)
 {
-	writel_relaxed(phys, ppebase + priv->port * 4 + PPE_CFG_RX_CFF_ADDR);
+	regmap_write(priv->map, priv->port * 4 + PPE_CFG_RX_ADDR, phys);
 }
 
 static u32 hip04_recv_cnt(struct hip04_priv *priv)
 {
-	return readl_relaxed(priv->base + PPE_HIS_RX_PKT_CNT);
+	return readl(priv->base + PPE_HIS_RX_PKT_CNT);
 }
 
 static void hip04_update_mac_address(struct net_device *ndev)
@@ -319,95 +306,158 @@ static void hip04_update_mac_address(struct net_device *ndev)
 
 static int hip04_set_mac_address(struct net_device *ndev, void *addr)
 {
-	struct sockaddr *address = addr;
-
-	if (!is_valid_ether_addr(address->sa_data))
-		return -EADDRNOTAVAIL;
-
-	memcpy(ndev->dev_addr, address->sa_data, ndev->addr_len);
+	eth_mac_addr(ndev, addr);
 	hip04_update_mac_address(ndev);
-
 	return 0;
 }
 
-static void endian_change(void *p, int size)
-{
-	unsigned int *to_cover = (unsigned int *)p;
-	int i;
-
-	size = size >> 2;
-	for (i = 0; i < size; i++)
-		*(to_cover+i) = htonl(*(to_cover+i));
-}
-
-#ifdef OBSOLETE_BUFFER
-static int
-hip04_rx_refill_one_buffer(struct net_device *ndev, unsigned int index)
+static void hip04_tx_reclaim(struct net_device *ndev, bool force)
 {
 	struct hip04_priv *priv = netdev_priv(ndev);
-	struct sk_buff *skb;
+	unsigned tx_head = priv->tx_head;
+	unsigned tx_tail = priv->tx_tail;
+	struct tx_desc *desc;
 
-	skb = dev_alloc_skb(RX_BUF_SIZE + NET_SKB_PAD);
-	if (NULL == skb)
-		return -ENOMEM;
+	spin_lock_bh(&priv->lock);
+	while ((tx_tail != tx_head) || (priv->tx_count == TX_DESC_NUM)) {
+		desc = &priv->tx_desc[priv->tx_tail];
+		if (desc->send_addr != 0) {
+			if (force)
+				desc->send_addr = 0;
+			else
+				break;
+		}
+		if (priv->tx_phys[tx_tail]) {
+			dma_unmap_single(&ndev->dev, priv->tx_phys[tx_tail],
+				priv->tx_skb[tx_tail]->len, DMA_TO_DEVICE);
+			priv->tx_phys[tx_tail] = 0;
+		}
+		dev_kfree_skb(priv->tx_skb[tx_tail]);
+		priv->tx_skb[tx_tail] = NULL;
+		tx_tail = TX_NEXT(tx_tail);
+		priv->tx_count--;
+	}
+	priv->tx_tail = tx_tail;
+	spin_unlock_bh(&priv->lock);
 
-	memset(skb->data, 0x0, RX_BUF_SIZE);
-	priv->rx_skb[index] = skb;
-	dma_map_single(&(ndev->dev), skb->data, RX_BUF_SIZE, DMA_TO_DEVICE);
-	hip04_set_recv_desc(priv, virt_to_phys(skb->data));
+	if (priv->tx_count)
+		mod_timer(&priv->txtimer, jiffies + RECLAIM_PERIOD);
 
-	return 0;
+	if (unlikely(netif_queue_stopped(ndev)) &&
+		(priv->tx_count < TX_DESC_NUM))
+		netif_wake_queue(ndev);
 }
-#endif
+
+static void hip04_xmit_timer(unsigned long data)
+{
+	struct net_device *ndev = (void *) data;
+
+	hip04_tx_reclaim(ndev, false);
+}
+
+static int hip04_mac_start_xmit(struct sk_buff *skb, struct net_device *ndev)
+{
+	struct hip04_priv *priv = netdev_priv(ndev);
+	struct net_device_stats *stats = &ndev->stats;
+	unsigned int tx_head = priv->tx_head;
+	struct tx_desc *desc = &priv->tx_desc[tx_head];
+	dma_addr_t phys;
+
+	hip04_tx_reclaim(ndev, false);
+	mod_timer(&priv->txtimer, jiffies + RECLAIM_PERIOD);
+
+	if (priv->tx_count >= TX_DESC_NUM) {
+		netif_stop_queue(ndev);
+		return NETDEV_TX_BUSY;
+	}
+
+	phys = dma_map_single(&ndev->dev, skb->data, skb->len, DMA_TO_DEVICE);
+	if (dma_mapping_error(&ndev->dev, phys)) {
+		dev_kfree_skb(skb);
+		return NETDEV_TX_OK;
+	}
+
+	priv->tx_skb[tx_head] = skb;
+	priv->tx_phys[tx_head] = phys;
+	desc->send_addr = cpu_to_be32(phys);
+	desc->send_size = cpu_to_be16(skb->len);
+	desc->cfg = cpu_to_be32(DESC_DEF_CFG);
+	phys = priv->tx_desc_dma + tx_head * sizeof(struct tx_desc);
+	desc->wb_addr = cpu_to_be32(phys);
+	skb_tx_timestamp(skb);
+
+	/* Don't wait up for transmitted skbs to be freed. */
+	skb_orphan(skb);
+
+	hip04_set_xmit_desc(priv, phys);
+	priv->tx_head = TX_NEXT(tx_head);
+
+	stats->tx_bytes += skb->len;
+	stats->tx_packets++;
+	priv->tx_count++;
+
+	return NETDEV_TX_OK;
+}
 
 static int hip04_rx_poll(struct napi_struct *napi, int budget)
 {
-	struct hip04_priv *priv = container_of(napi,
-			      struct hip04_priv, napi);
+	struct hip04_priv *priv = container_of(napi, struct hip04_priv, napi);
 	struct net_device *ndev = priv->ndev;
-	struct sk_buff *skb;
-	struct rx_desc *desc;
-	unsigned char *buf;
-	int rx = 0;
+	struct net_device_stats *stats = &ndev->stats;
 	unsigned int cnt = hip04_recv_cnt(priv);
-	unsigned int len, tmp[16];
+	struct rx_desc *desc;
+	struct sk_buff *skb;
+	unsigned char *buf;
+	bool last = false;
+	dma_addr_t phys;
+	int rx = 0;
+	u16 len;
+	u32 err;
 
-	while (cnt) {
-#ifdef OBSOLETE_BUFFER
-		skb = priv->rx_skb[priv->rx_head];
-#else
+	while (cnt && !last) {
 		buf = priv->rx_buf[priv->rx_head];
 		skb = build_skb(buf, priv->rx_buf_size);
 		if (unlikely(!skb))
 			net_dbg_ratelimited("build_skb failed\n");
-#endif
-		dma_map_single(&ndev->dev, skb->data,
-			RX_BUF_SIZE, DMA_FROM_DEVICE);
-		memcpy(tmp, skb->data, 64);
-		endian_change((void *)tmp, 64);
-		desc = (struct rx_desc *)tmp;
-		len = desc->pkt_len;
 
-		if (len > RX_BUF_SIZE)
-			len = RX_BUF_SIZE;
-		if (0 == len)
-			break;
+		dma_unmap_single(&ndev->dev, priv->rx_phys[priv->rx_head],
+				RX_BUF_SIZE, DMA_FROM_DEVICE);
+		priv->rx_phys[priv->rx_head] = 0;
 
-		skb_reserve(skb, NET_SKB_PAD + NET_IP_ALIGN);
-		skb_put(skb, len);
-		skb->protocol = eth_type_trans(skb, ndev);
-		napi_gro_receive(&priv->napi, skb);
+		desc = (struct rx_desc *)skb->data;
+		len = be16_to_cpu(desc->pkt_len);
+		err = be32_to_cpu(desc->pkt_err);
 
-#ifdef OBSOLETE_BUFFER
-		hip04_rx_refill_one_buffer(ndev, priv->rx_head);
-#else
-		dma_map_single(&ndev->dev, buf,	RX_BUF_SIZE, DMA_TO_DEVICE);
-		/* reuse the buffer after data exhausted */
-		hip04_set_recv_desc(priv, virt_to_phys(buf));
-#endif
+		if (0 == len) {
+			dev_kfree_skb_any(skb);
+			last = true;
+		} else if ((err & RX_PKT_ERR) || (len >= GMAC_MAX_PKT_LEN)) {
+			dev_kfree_skb_any(skb);
+			stats->rx_dropped++;
+			stats->rx_errors++;
+		} else {
+			skb_reserve(skb, NET_SKB_PAD + NET_IP_ALIGN);
+			skb_put(skb, len);
+			skb->protocol = eth_type_trans(skb, ndev);
+			napi_gro_receive(&priv->napi, skb);
+			stats->rx_packets++;
+			stats->rx_bytes += len;
+			rx++;
+		}
+
+		buf = netdev_alloc_frag(priv->rx_buf_size);
+		if (!buf)
+			return -ENOMEM;
+		phys = dma_map_single(&ndev->dev, buf,
+				RX_BUF_SIZE, DMA_FROM_DEVICE);
+		if (dma_mapping_error(&ndev->dev, phys))
+			return -EIO;
+		priv->rx_buf[priv->rx_head] = buf;
+		priv->rx_phys[priv->rx_head] = phys;
+		hip04_set_recv_desc(priv, phys);
+
 		priv->rx_head = RX_NEXT(priv->rx_head);
-
-		if (rx++ >= budget)
+		if (rx >= budget)
 			break;
 
 		if (--cnt == 0)
@@ -415,13 +465,12 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 	}
 
 	if (rx < budget) {
-		napi_gro_flush(napi, false);
-		__napi_complete(napi);
-	}
+		napi_complete(napi);
 
-	/* enable rx interrupt */
-	priv->reg_inten |= RCV_INT | RCV_NOBUF;
-	writel_relaxed(priv->reg_inten, priv->base + PPE_INTEN);
+		/* enable rx interrupt */
+		priv->reg_inten |= RCV_INT | RCV_NOBUF;
+		writel_relaxed(priv->reg_inten, priv->base + PPE_INTEN);
+	}
 
 	return rx;
 }
@@ -430,82 +479,18 @@ static irqreturn_t hip04_mac_interrupt(int irq, void *dev_id)
 {
 	struct net_device *ndev = (struct net_device *) dev_id;
 	struct hip04_priv *priv = netdev_priv(ndev);
-	unsigned int ists = readl(priv->base + PPE_INTSTS);
-	u32 val;
+	u32 ists = readl_relaxed(priv->base + PPE_INTSTS);
 
-	val = DEF_INT_MASK;
-	writel_relaxed(val, priv->base + PPE_RINT);
+	writel_relaxed(DEF_INT_MASK, priv->base + PPE_RINT);
 
-	if ((ists & RCV_INT) || (ists & RCV_NOBUF)) {
-		if (napi_schedule_prep(&priv->napi)) {
-			/* disable rx interrupt */
-			priv->reg_inten &= ~(RCV_INT | RCV_NOBUF);
-			writel_relaxed(priv->reg_inten, priv->base + PPE_INTEN);
-			__napi_schedule(&priv->napi);
-		}
+	if (ists & (RCV_INT | RCV_NOBUF)) {
+		/* disable rx interrupt */
+		priv->reg_inten &= ~(RCV_INT | RCV_NOBUF);
+		writel_relaxed(priv->reg_inten, priv->base + PPE_INTEN);
+		napi_schedule(&priv->napi);
 	}
 
 	return IRQ_HANDLED;
-}
-
-static void hip04_tx_reclaim(struct net_device *ndev, bool force)
-{
-	struct hip04_priv *priv = netdev_priv(ndev);
-	unsigned tx_head = priv->tx_head;
-	unsigned tx_tail = priv->tx_tail;
-	struct tx_desc *desc = priv->td_ring[priv->tx_tail];
-
-	spin_lock_irq(&priv->txlock);
-	while (tx_tail != tx_head) {
-		if (desc->send_addr != 0) {
-			if (force)
-				desc->send_addr = 0;
-			else
-				break;
-		}
-		dev_kfree_skb_irq(priv->tx_skb[tx_tail]);
-		priv->tx_skb[tx_tail] = NULL;
-		tx_tail = TX_NEXT(tx_tail);
-		priv->tx_count--;
-	}
-	priv->tx_tail = tx_tail;
-	spin_unlock_irq(&priv->txlock);
-}
-
-static int hip04_mac_start_xmit(struct sk_buff *skb, struct net_device *ndev)
-{
-	struct hip04_priv *priv = netdev_priv(ndev);
-	struct tx_desc *desc = priv->td_ring[priv->tx_head];
-	unsigned int tx_head = priv->tx_head;
-	int ret;
-
-	hip04_tx_reclaim(ndev, false);
-
-	spin_lock_irq(&priv->txlock);
-	if (priv->tx_count++ >= TX_DESC_NUM) {
-		net_dbg_ratelimited("no TX space for packet\n");
-		netif_stop_queue(ndev);
-		ret = NETDEV_TX_BUSY;
-		goto out_unlock;
-	}
-
-	priv->tx_skb[tx_head] = skb;
-	dma_map_single(&ndev->dev, skb->data, skb->len, DMA_TO_DEVICE);
-	memset((void *)desc, 0, sizeof(*desc));
-	desc->send_addr = (unsigned int)virt_to_phys(skb->data);
-	desc->send_size = skb->len;
-	desc->cfg = DESC_DEF_CFG;
-	desc->wb_addr = priv->td_phys[tx_head];
-	endian_change(desc, 64);
-	skb_tx_timestamp(skb);
-	hip04_set_xmit_desc(priv, priv->td_phys[tx_head]);
-
-	priv->tx_head = TX_NEXT(tx_head);
-	ret = NETDEV_TX_OK;
-out_unlock:
-	spin_unlock_irq(&priv->txlock);
-
-	return ret;
 }
 
 static void hip04_adjust_link(struct net_device *ndev)
@@ -513,8 +498,10 @@ static void hip04_adjust_link(struct net_device *ndev)
 	struct hip04_priv *priv = netdev_priv(ndev);
 	struct phy_device *phy = priv->phy;
 
-	if ((priv->speed != phy->speed) || (priv->duplex != phy->duplex))
-		hip04_config_port(priv, phy->speed, phy->duplex);
+	if ((priv->speed != phy->speed) || (priv->duplex != phy->duplex)) {
+		hip04_config_port(ndev, phy->speed, phy->duplex);
+		phy_print_status(phy);
+	}
 }
 
 static int hip04_mac_open(struct net_device *ndev)
@@ -522,50 +509,74 @@ static int hip04_mac_open(struct net_device *ndev)
 	struct hip04_priv *priv = netdev_priv(ndev);
 	int i;
 
-#ifndef OBSOLETE_BUFFER
-	hip04_reset_ppe(priv);
-	for (i = 0; i < RX_DESC_NUM; i++) {
-		dma_map_single(&ndev->dev, priv->rx_buf[i],
-				RX_BUF_SIZE, DMA_TO_DEVICE);
-		hip04_set_recv_desc(priv, virt_to_phys(priv->rx_buf[i]));
-	}
 	priv->rx_head = 0;
-#endif
 	priv->tx_head = 0;
 	priv->tx_tail = 0;
 	priv->tx_count = 0;
+	hip04_reset_ppe(priv);
 
-	if (priv->phy_node) {
-		priv->phy = of_phy_connect(ndev, priv->phy_node,
-			&hip04_adjust_link, 0, PHY_INTERFACE_MODE_GMII);
-		if (!priv->phy)
-			return -ENODEV;
-		phy_start(priv->phy);
+	for (i = 0; i < RX_DESC_NUM; i++) {
+		dma_addr_t phys;
+
+		phys = dma_map_single(&ndev->dev, priv->rx_buf[i],
+				RX_BUF_SIZE, DMA_FROM_DEVICE);
+		if (dma_mapping_error(&ndev->dev, phys))
+			return -EIO;
+
+		priv->rx_phys[i] = phys;
+		hip04_set_recv_desc(priv, phys);
 	}
 
+	if (priv->phy)
+		phy_start(priv->phy);
+
 	netif_start_queue(ndev);
-	hip04_mac_enable(ndev, true);
+	hip04_mac_enable(ndev);
 	napi_enable(&priv->napi);
+
 	return 0;
 }
 
 static int hip04_mac_stop(struct net_device *ndev)
 {
 	struct hip04_priv *priv = netdev_priv(ndev);
+	int i;
 
 	napi_disable(&priv->napi);
 	netif_stop_queue(ndev);
-	hip04_mac_enable(ndev, false);
+	del_timer_sync(&priv->txtimer);
+	hip04_mac_disable(ndev);
 	hip04_tx_reclaim(ndev, true);
-#ifndef OBSOLETE_BUFFER
 	hip04_reset_ppe(priv);
-#endif
+
+	if (priv->phy)
+		phy_stop(priv->phy);
+
+	for (i = 0; i < RX_DESC_NUM; i++) {
+		if (priv->rx_phys[i]) {
+			dma_unmap_single(&ndev->dev, priv->rx_phys[i],
+					RX_BUF_SIZE, DMA_FROM_DEVICE);
+			priv->rx_phys[i] = 0;
+		}
+	}
+
 	return 0;
 }
 
 static void hip04_timeout(struct net_device *ndev)
 {
-	netif_wake_queue(ndev);
+	struct hip04_priv *priv = netdev_priv(ndev);
+
+	schedule_work(&priv->tx_timeout_task);
+}
+
+static void hip04_tx_timeout_task(struct work_struct *work)
+{
+	struct hip04_priv *priv;
+
+	priv = container_of(work, struct hip04_priv, tx_timeout_task);
+	hip04_mac_stop(priv->ndev);
+	hip04_mac_open(priv->ndev);
 	return;
 }
 
@@ -579,87 +590,54 @@ static struct net_device_ops hip04_netdev_ops = {
 	.ndo_change_mtu		= eth_change_mtu,
 };
 
-#ifdef OBSOLETE_BUFFER
-static int hip04_rx_ring_init(struct net_device *dev)
-{
-	struct hip04_priv *priv = netdev_priv(dev);
-	struct sk_buff      *skb       = NULL;
-	unsigned int         i;
-
-	for (i = 0; i < RX_DESC_NUM; i++) {
-		skb = dev_alloc_skb(RX_BUF_SIZE);
-		if (NULL == skb)
-			return -ENOMEM;
-		memset(skb->data, 0x0, RX_BUF_SIZE);
-		dma_map_single(&dev->dev, (skb->data),
-				RX_BUF_SIZE, DMA_TO_DEVICE);
-		hip04_set_recv_desc(priv, virt_to_phys(skb->data));
-		priv->rx_skb[i] = skb;
-	}
-	priv->rx_head = 0;
-	return 0;
-}
-#endif
-
 static int hip04_alloc_ring(struct net_device *ndev, struct device *d)
 {
 	struct hip04_priv *priv = netdev_priv(ndev);
-	void *base;
 	int i;
 
-	priv->desc_pool = dma_pool_create(DRV_NAME, d, sizeof(struct tx_desc),
-				SKB_DATA_ALIGN(sizeof(struct tx_desc)),	0);
-	if (!priv->desc_pool)
+	priv->tx_desc = dma_alloc_coherent(d,
+			TX_DESC_NUM * sizeof(struct tx_desc),
+			&priv->tx_desc_dma, GFP_KERNEL);
+	if (!priv->tx_desc)
 		return -ENOMEM;
 
-	for (i = 0; i < TX_DESC_NUM; i++) {
-		priv->td_ring[i] = dma_pool_alloc(priv->desc_pool,
-					GFP_ATOMIC, &priv->td_phys[i]);
-		if (!priv->td_ring[i])
+	priv->rx_buf_size = RX_BUF_SIZE +
+			    SKB_DATA_ALIGN(sizeof(struct skb_shared_info));
+	for (i = 0; i < RX_DESC_NUM; i++) {
+		priv->rx_buf[i] = netdev_alloc_frag(priv->rx_buf_size);
+		if (!priv->rx_buf[i])
 			return -ENOMEM;
 	}
 
-#ifndef OBSOLETE_BUFFER
-	priv->rx_head = 0;
-	priv->rx_buf_size = RX_BUF_SIZE +
-			    SKB_DATA_ALIGN(sizeof(struct skb_shared_info));
-	/* mallco one more buffer for SKB_DATA_ALIGN */
-	base = devm_kzalloc(d, priv->rx_buf_size * (RX_DESC_NUM + 1),
-			GFP_ATOMIC);
-	if (!base)
-		return -ENOMEM;
-	base = (void *)SKB_DATA_ALIGN((unsigned int)base);
-	for (i = 0; i < RX_DESC_NUM; i++)
-		priv->rx_buf[i] = base + i * priv->rx_buf_size;
-#endif
 	return 0;
 }
 
-static void hip04_free_ring(struct net_device *dev)
+static void hip04_free_ring(struct net_device *ndev, struct device *d)
 {
-	struct hip04_priv *priv = netdev_priv(dev);
+	struct hip04_priv *priv = netdev_priv(ndev);
 	int i;
 
-	for (i = 0; i < TX_DESC_NUM; i++) {
+	for (i = 0; i < RX_DESC_NUM; i++)
+		if (priv->rx_buf[i])
+			put_page(virt_to_head_page(priv->rx_buf[i]));
+
+	for (i = 0; i < TX_DESC_NUM; i++)
 		if (priv->tx_skb[i])
 			dev_kfree_skb_any(priv->tx_skb[i]);
-		if ((priv->desc_pool) && (priv->td_ring[i]))
-			dma_pool_free(priv->desc_pool, priv->td_ring[i],
-					priv->td_phys[i]);
-	}
 
-	if (priv->desc_pool)
-		dma_pool_destroy(priv->desc_pool);
+	dma_free_coherent(d, TX_DESC_NUM * sizeof(struct tx_desc),
+			priv->tx_desc, priv->tx_desc_dma);
 }
 
 static int hip04_mac_probe(struct platform_device *pdev)
 {
 	struct device *d = &pdev->dev;
 	struct device_node *node = d->of_node;
+	struct of_phandle_args arg;
 	struct net_device *ndev;
 	struct hip04_priv *priv;
 	struct resource *res;
-	unsigned int irq, val;
+	unsigned int irq;
 	int ret;
 
 	ndev = alloc_etherdev(sizeof(struct hip04_priv));
@@ -668,63 +646,64 @@ static int hip04_mac_probe(struct platform_device *pdev)
 
 	priv = netdev_priv(ndev);
 	priv->ndev = ndev;
+	spin_lock_init(&priv->lock);
 	platform_set_drvdata(pdev, ndev);
-	spin_lock_init(&priv->txlock);
+
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	if (!res) {
+	priv->base = devm_ioremap_resource(d, res);
+	if (IS_ERR(priv->base)) {
+		ret = PTR_ERR(priv->base);
+		goto init_fail;
+	}
+
+	ret = of_parse_phandle_with_fixed_args(node, "port-handle", 2, 0, &arg);
+	if (ret < 0) {
+		dev_warn(d, "no port-handle\n");
+		goto init_fail;
+	}
+
+	priv->port = arg.args[0];
+	priv->chan = arg.args[1];
+
+	priv->map = syscon_node_to_regmap(arg.np);
+	if (IS_ERR(priv->map)) {
+		dev_warn(d, "no syscon hisilicon,hip04-ppe\n");
+		ret = PTR_ERR(priv->map);
+		goto init_fail;
+	}
+
+	priv->phy_mode = of_get_phy_mode(node);
+	if (priv->phy_mode < 0) {
+		dev_warn(d, "not find phy-mode\n");
 		ret = -EINVAL;
 		goto init_fail;
 	}
-	ndev->base_addr = res->start;
-	priv->base = devm_ioremap_resource(d, res);
-	ret = IS_ERR(priv->base);
-	if (ret) {
-		dev_err(d, "devm_ioremap_resource failed\n");
-		goto init_fail;
-	}
 
-	if (!ppebase) {
-		struct device_node *n;
-
-		n = of_find_compatible_node(NULL, NULL, "hisilicon,hip04-ppebase");
-		if (!n) {
-			ret = -EINVAL;
-			netdev_err(ndev, "not find hisilicon,ppebase\n");
-			goto init_fail;
-		}
-		ppebase = of_iomap(n, 0);
-	}
-
-	ret = of_property_read_u32(node, "port", &val);
-	if (ret) {
-		dev_warn(d, "not find port info\n");
-		goto init_fail;
-	}
-	priv->port = val & 0x1f;
-
-	ret = of_property_read_u32(node, "speed", &val);
-	if (ret) {
-		dev_warn(d, "not find speed info\n");
-		priv->speed = SPEED_1000;
-	}
-
-	if (SPEED_100 == val)
-		priv->speed = SPEED_100;
-	else
-		priv->speed = SPEED_1000;
-	priv->duplex = DUPLEX_FULL;
-
-	/* fixme any id can be used directly? */
-	ret = of_property_read_u32(node, "id", &priv->id);
-	if (ret) {
-		dev_warn(d, "not find id info\n");
-		goto init_fail;
-	}
 	irq = platform_get_irq(pdev, 0);
 	if (irq <= 0) {
 		ret = -EINVAL;
 		goto init_fail;
 	}
+
+	ret = devm_request_irq(d, irq, hip04_mac_interrupt,
+				0, pdev->name, ndev);
+	if (ret) {
+		netdev_err(ndev, "devm_request_irq failed\n");
+		goto init_fail;
+	}
+
+	priv->phy_node = of_parse_phandle(node, "phy-handle", 0);
+	if (priv->phy_node) {
+		priv->phy = of_phy_connect(ndev, priv->phy_node,
+			&hip04_adjust_link, 0, priv->phy_mode);
+		if (!priv->phy) {
+			ret = -EPROBE_DEFER;
+			goto init_fail;
+		}
+	}
+
+	INIT_WORK(&priv->tx_timeout_task, hip04_tx_timeout_task);
+
 	ether_setup(ndev);
 	ndev->netdev_ops = &hip04_netdev_ops;
 	ndev->watchdog_timeo = TX_TIMEOUT;
@@ -734,37 +713,30 @@ static int hip04_mac_probe(struct platform_device *pdev)
 	SET_NETDEV_DEV(ndev, &pdev->dev);
 
 	hip04_reset_ppe(priv);
-	hip04_config_port(priv, priv->speed, priv->duplex);
+	if (priv->phy_mode == PHY_INTERFACE_MODE_MII)
+		hip04_config_port(ndev, SPEED_100, DUPLEX_FULL);
+
 	hip04_config_fifo(priv);
 	random_ether_addr(ndev->dev_addr);
 	hip04_update_mac_address(ndev);
-#ifdef OBSOLETE_BUFFER
-	hip04_rx_ring_init(ndev);
-#endif
+
 	ret = hip04_alloc_ring(ndev, d);
 	if (ret) {
 		netdev_err(ndev, "alloc ring fail\n");
 		goto alloc_fail;
 	}
 
-	ret = devm_request_irq(d, irq, hip04_mac_interrupt,
-					0, pdev->name, ndev);
-	if (ret) {
-		netdev_err(ndev, "devm_request_irq failed\n");
-		goto init_fail;
-	}
-
-	priv->phy_node = of_parse_phandle(node, "phy-handle", 0);
-
+	setup_timer(&priv->txtimer, hip04_xmit_timer, (unsigned long) ndev);
 	ret = register_netdev(ndev);
 	if (ret) {
 		free_netdev(ndev);
-		goto init_fail;
+		goto alloc_fail;
 	}
 
 	return 0;
+
 alloc_fail:
-	hip04_free_ring(ndev);
+	hip04_free_ring(ndev, d);
 init_fail:
 	of_node_put(priv->phy_node);
 	free_netdev(ndev);
@@ -775,12 +747,17 @@ static int hip04_remove(struct platform_device *pdev)
 {
 	struct net_device *ndev = platform_get_drvdata(pdev);
 	struct hip04_priv *priv = netdev_priv(ndev);
+	struct device *d = &pdev->dev;
 
+	if (priv->phy)
+		phy_disconnect(priv->phy);
+
+	hip04_free_ring(ndev, d);
 	unregister_netdev(ndev);
 	free_irq(ndev->irq, ndev);
-	free_netdev(ndev);
-	free_netdev(ndev);
 	of_node_put(priv->phy_node);
+	cancel_work_sync(&priv->tx_timeout_task);
+	free_netdev(ndev);
 
 	return 0;
 }
