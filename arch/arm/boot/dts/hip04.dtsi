@@ -8,10 +8,8 @@
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
- * publishhed by the Free Software Foundation.
+ * published by the Free Software Foundation.
  */
-
-#include <dt-bindings/clock/hip04-clock.h>
 
 / {
 	/* memory bus is 64-bit */
@@ -167,14 +165,16 @@
  */
 	};
 
-	clock: clock {
-		compatible = "hisilicon,hip04-clock";
-		/* dummy register.
-		 * Don't need to access clock registers since they're
-		 * configured in firmware already.
-		 */
-		reg = <0 0 0 0x1000>;
-		#clock-cells = <1>;
+	clk_50m: clk_50m {
+		#clock-cells = <0>;
+		compatible = "fixed-clock";
+		clock-frequency = <50000000>;
+	};
+
+	clk_168m: clk_168m {
+		#clock-cells = <0>;
+		compatible = "fixed-clock";
+		clock-frequency = <168000000>;
 	};
 
 	timer {
@@ -224,7 +224,7 @@
 			compatible = "arm,sp804", "arm,primecell";
 			reg = <0x3000000 0x1000>;
 			interrupts = <0 224 4>;
-			clocks = <&clock HIP04_CLK_50M>;
+			clocks = <&clk_50m>, <&clk_50m>;
 			clock-names = "apb_pclk";
 		};
 
@@ -252,7 +252,7 @@
 			compatible = "snps,dw-apb-uart";
 			reg = <0x4007000 0x1000>;
 			interrupts = <0 381 4>;
-			clocks = <&clock HIP04_CLK_168M>;
+			clocks = <&clk_168m>;
 			clock-names = "uartclk";
 			reg-shift = <2>;
 			status = "disabled";
