@@ -20,6 +20,11 @@
 		serial0 = &uart0;
 	};
 
+	bootwrapper {
+		compatible = "hisilicon,hip04-bootwrapper";
+		boot-method = <0x10c00000 0x10000>, <0xe0000100 0x1000>;
+	};
+
 	cpus {
 		#address-cells = <1>;
 		#size-cells = <0>;
@@ -208,11 +213,6 @@
 		sysctrl: sysctrl {
 			compatible = "hisilicon,sysctrl";
 			reg = <0x3e00000 0x00100000>;
-			relocation-entry = <0xe0000100>;
-			relocation-size = <0x1000>;
-			bootwrapper-phys = <0x10c00000>;
-			bootwrapper-size = <0x10000>;
-			bootwrapper-magic = <0xa5a5a5a5>;
 		};
 
 		fabric: fabric {
