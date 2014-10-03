@@ -782,15 +782,25 @@ static void __init do_initcalls(void)
  */
 static void __init do_basic_setup(void)
 {
+	printk("%s:%d:%s: trace\n", __FILE__, __LINE__, __func__);
 	cpuset_init_smp();
+	printk("%s:%d:%s: trace\n", __FILE__, __LINE__, __func__);
 	usermodehelper_init();
+	printk("%s:%d:%s: trace\n", __FILE__, __LINE__, __func__);
 	shmem_init();
+	printk("%s:%d:%s: trace\n", __FILE__, __LINE__, __func__);
 	driver_init();
+	printk("%s:%d:%s: trace\n", __FILE__, __LINE__, __func__);
 	init_irq_proc();
+	printk("%s:%d:%s: trace\n", __FILE__, __LINE__, __func__);
 	do_ctors();
+	printk("%s:%d:%s: trace\n", __FILE__, __LINE__, __func__);
 	usermodehelper_enable();
+	printk("%s:%d:%s: trace\n", __FILE__, __LINE__, __func__);
 	do_initcalls();
+	printk("%s:%d:%s: trace\n", __FILE__, __LINE__, __func__);
 	random_int_secret_init();
+	printk("%s:%d:%s: trace\n", __FILE__, __LINE__, __func__);
 }
 
 static void __init do_pre_smp_initcalls(void)
@@ -840,16 +850,25 @@ static int __ref kernel_init(void *unused)
 {
 	int ret;
 
+	printk("%s:%d:%s: trace\n", __FILE__, __LINE__, __func__);
+
 	kernel_init_freeable();
+	printk("%s:%d:%s: trace\n", __FILE__, __LINE__, __func__);
 	/* need to finish all async __init code before freeing the memory */
 	async_synchronize_full();
+	printk("%s:%d:%s: trace\n", __FILE__, __LINE__, __func__);
 	free_initmem();
+	printk("%s:%d:%s: trace\n", __FILE__, __LINE__, __func__);
 	mark_rodata_ro();
+	printk("%s:%d:%s: trace\n", __FILE__, __LINE__, __func__);
 	system_state = SYSTEM_RUNNING;
+	printk("%s:%d:%s: trace\n", __FILE__, __LINE__, __func__);
 	numa_default_policy();
+	printk("%s:%d:%s: trace\n", __FILE__, __LINE__, __func__);
 
 	flush_delayed_fput();
 
+	printk("%s:%d:%s: trace\n", __FILE__, __LINE__, __func__);
 	if (ramdisk_execute_command) {
 		ret = run_init_process(ramdisk_execute_command);
 		if (!ret)
@@ -909,12 +928,15 @@ static noinline void __init kernel_init_freeable(void)
 
 	smp_init();
 	sched_init_smp();
+	printk("%s:%d:%s: trace\n", __FILE__, __LINE__, __func__);
 
 	do_basic_setup();
+	printk("%s:%d:%s: trace\n", __FILE__, __LINE__, __func__);
 
 	/* Open the /dev/console on the rootfs, this should never fail */
 	if (sys_open((const char __user *) "/dev/console", O_RDWR, 0) < 0)
 		pr_err("Warning: unable to open an initial console.\n");
+	printk("%s:%d:%s: trace\n", __FILE__, __LINE__, __func__);
 
 	(void) sys_dup(0);
 	(void) sys_dup(0);
