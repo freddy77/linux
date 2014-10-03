@@ -19,9 +19,21 @@
 	compatible = "hisilicon,hip04-d01";
 
 	chosen {
-/*		bootargs = "console=ttyS0,9600 rdinit=/linuxrc earlyprintk";
- */		linux,initrd-start = <0 0x10d00000>;
-		linux,initrd-end = <0 0x12500000>;
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+/*		bootargs = "console=ttyS0,9600 rdinit=/linuxrc earlyprintk"; */
+/*		bootargs = "console=ttyS0,115200 earlyprintk rootfstype=nfsroot root=/dev/nfs rw nfsroot=192.168.1.1:/binary ip=192.168.1.12:192.168.1.1:192.168.1.1:255.255.255.0::eth0:on:192.168.1.1:8.8.8.8 user_debug=31 nfsrootdebug"; */
+/*		linux,initrd-start = <0 0x10d00000>;
+		linux,initrd-end = <0 0x12500000>; */
+/*		xen,xen-bootargs = "console=dtuart dtuart=serial0"; */
+		xen,xen-bootargs = "nosmp maxcpus=1 console=dtuart dtuart=serial0 sync_console";
+		xen,dom0-bootargs = "console=hvc0 earlyprintk clk_ignore_unused root=/dev/sda2 rw debug loglevel=7 sched_debug";
+		module@0x10d00000 {
+	                compatible = "xen,linux-kernel", "xen,multiboot-module";
+        	        reg = <0x10d00000 0x294000>;
+/*        	        reg = <0x10d00000 0x1800000>; */
+        	};
 	};
 
 	memory@0 {
