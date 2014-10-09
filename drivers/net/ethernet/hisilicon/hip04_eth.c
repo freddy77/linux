@@ -420,9 +420,11 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 		if (unlikely(!skb))
 			net_dbg_ratelimited("build_skb failed\n");
 
-		dma_unmap_single(&ndev->dev, priv->rx_phys[priv->rx_head],
-				RX_BUF_SIZE, DMA_FROM_DEVICE);
-		priv->rx_phys[priv->rx_head] = 0;
+		if (priv->rx_phys[priv->rx_head]) {
+			dma_unmap_single(&ndev->dev, priv->rx_phys[priv->rx_head],
+					RX_BUF_SIZE, DMA_FROM_DEVICE);
+			priv->rx_phys[priv->rx_head] = 0;
+		}
 
 		desc = (struct rx_desc *)skb->data;
 		len = be16_to_cpu(desc->pkt_len);
