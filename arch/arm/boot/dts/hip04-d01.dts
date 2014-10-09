@@ -29,7 +29,7 @@
 /*		xen,xen-bootargs = "console=dtuart dtuart=serial0"; */
 		xen,xen-bootargs = "nosmp maxcpus=1 console=dtuart dtuart=serial0 sync_console";
 /*		xen,dom0-bootargs = "console=hvc0 earlyprintk rootfstype=nfsroot root=/dev/nfs rw nfsroot=192.168.1.1:/binary ip=192.168.1.12:192.168.1.1:192.168.1.1:255.255.255.0::eth0:on:192.168.1.1:8.8.8.8 user_debug=31 nfsrootdebug loglevel=7 sched_debug"; */
-		xen,dom0-bootargs = "console=hvc0 earlyprintk root=/dev/sda2 rw loglevel=7 init=/bin/bash";
+		xen,dom0-bootargs = "console=hvc0 earlyprintk root=/dev/sda2 rw loglevel=7 debug break=y init=/bin/bash";
 		module@0x10d00000 {
 	                compatible = "xen,linux-kernel", "xen,multiboot-module";
         	        reg = <0x10d00000 0x300000>;
