@@ -94,12 +94,13 @@ MACHINE_END
 static void __iomem *gb3 = NULL;	/* gpio bank3 to control watchdog */
 
 static const char *hip04_compat[] __initconst = {
-	"hisilicon,hip04-d01",
+	"hisilicon,xxhip04-d01",
 	NULL,
 };
 
 static void __init hip04_init_machine(void)
 {
+#if 0
 	unsigned int data, mask;
 	of_platform_populate(NULL, of_default_bus_match_table, NULL, NULL);
 
@@ -118,6 +119,7 @@ static void __init hip04_init_machine(void)
 	data = readl_relaxed(gb3);
 	/* write high to GPIO117 to disable watchdog */
 	writel_relaxed(data | ~mask, gb3);
+#endif
 }
 
 static void hip04_restart(enum reboot_mode mode, const char *cmd)
