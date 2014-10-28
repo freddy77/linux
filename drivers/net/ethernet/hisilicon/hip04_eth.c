@@ -416,28 +416,33 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 
 	while (cnt && !last) {
 		buf = priv->rx_buf[priv->rx_head];
-		skb = build_skb(buf, priv->rx_buf_size);
-		if (unlikely(!skb))
-			net_dbg_ratelimited("build_skb failed\n");
-
 		if (priv->rx_phys[priv->rx_head] != DMA_ERROR_CODE) {
 			dma_unmap_single(&ndev->dev, priv->rx_phys[priv->rx_head],
 					RX_BUF_SIZE, DMA_FROM_DEVICE);
 			priv->rx_phys[priv->rx_head] = DMA_ERROR_CODE;
 		}
 
-		desc = (struct rx_desc *)skb->data;
+		desc = (struct rx_desc *)buf;
 		len = be16_to_cpu(desc->pkt_len);
 		err = be32_to_cpu(desc->pkt_err);
 
 		if (0 == len) {
-			dev_kfree_skb_any(skb);
 			last = true;
 		} else if ((err & RX_PKT_ERR) || (len >= GMAC_MAX_PKT_LEN)) {
-			dev_kfree_skb_any(skb);
 			stats->rx_dropped++;
 			stats->rx_errors++;
 		} else {
+			buf = netdev_alloc_frag(priv->rx_buf_size);
+			if (!buf)
+				return -ENOMEM;
+
+			skb = build_skb(desc, priv->rx_buf_size);
+			if (unlikely(!skb)) {
+				put_page(virt_to_head_page(buf));
+				net_dbg_ratelimited("build_skb failed\n");
+				return -ENOMEM;
+			}
+
 			skb_reserve(skb, NET_SKB_PAD + NET_IP_ALIGN);
 			skb_put(skb, len);
 			skb->protocol = eth_type_trans(skb, ndev);
@@ -445,16 +450,14 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 			stats->rx_packets++;
 			stats->rx_bytes += len;
 			rx++;
+
+			priv->rx_buf[priv->rx_head] = buf;
 		}
 
-		buf = netdev_alloc_frag(priv->rx_buf_size);
-		if (!buf)
-			return -ENOMEM;
 		phys = dma_map_single(&ndev->dev, buf,
 				RX_BUF_SIZE, DMA_FROM_DEVICE);
 		if (dma_mapping_error(&ndev->dev, phys))
 			return -EIO;
-		priv->rx_buf[priv->rx_head] = buf;
 		priv->rx_phys[priv->rx_head] = phys;
 		hip04_set_recv_desc(priv, phys);
 
