@@ -327,10 +327,10 @@ static void hip04_tx_reclaim(struct net_device *ndev, bool force)
 			else
 				break;
 		}
-		if (priv->tx_phys[tx_tail]) {
+		if (priv->tx_phys[tx_tail] != DMA_ERROR_CODE) {
 			dma_unmap_single(&ndev->dev, priv->tx_phys[tx_tail],
 				priv->tx_skb[tx_tail]->len, DMA_TO_DEVICE);
-			priv->tx_phys[tx_tail] = 0;
+			priv->tx_phys[tx_tail] = DMA_ERROR_CODE;
 		}
 		dev_kfree_skb(priv->tx_skb[tx_tail]);
 		priv->tx_skb[tx_tail] = NULL;
@@ -420,10 +420,10 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 		if (unlikely(!skb))
 			net_dbg_ratelimited("build_skb failed\n");
 
-		if (priv->rx_phys[priv->rx_head]) {
+		if (priv->rx_phys[priv->rx_head] != DMA_ERROR_CODE) {
 			dma_unmap_single(&ndev->dev, priv->rx_phys[priv->rx_head],
 					RX_BUF_SIZE, DMA_FROM_DEVICE);
-			priv->rx_phys[priv->rx_head] = 0;
+			priv->rx_phys[priv->rx_head] = DMA_ERROR_CODE;
 		}
 
 		desc = (struct rx_desc *)skb->data;
@@ -555,10 +555,10 @@ static int hip04_mac_stop(struct net_device *ndev)
 		phy_stop(priv->phy);
 
 	for (i = 0; i < RX_DESC_NUM; i++) {
-		if (priv->rx_phys[i]) {
+		if (priv->rx_phys[i] != DMA_ERROR_CODE) {
 			dma_unmap_single(&ndev->dev, priv->rx_phys[i],
 					RX_BUF_SIZE, DMA_FROM_DEVICE);
-			priv->rx_phys[i] = 0;
+			priv->rx_phys[i] = DMA_ERROR_CODE;
 		}
 	}
 
@@ -640,13 +640,17 @@ static int hip04_mac_probe(struct platform_device *pdev)
 	struct hip04_priv *priv;
 	struct resource *res;
 	unsigned int irq;
-	int ret;
+	int ret, i;
 
 	ndev = alloc_etherdev(sizeof(struct hip04_priv));
 	if (!ndev)
 		return -ENOMEM;
 
 	priv = netdev_priv(ndev);
+	for (i = 0; i < RX_DESC_NUM; i++)
+		priv->rx_phys[i] = DMA_ERROR_CODE;
+	for (i = 0; i < TX_DESC_NUM; i++)
+		priv->tx_phys[i] = DMA_ERROR_CODE;
 	priv->ndev = ndev;
 	spin_lock_init(&priv->lock);
 	platform_set_drvdata(pdev, ndev);
