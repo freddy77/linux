@@ -709,6 +709,8 @@ static int hip04_mac_probe(struct platform_device *pdev)
 		}
 	}
 
+	dma_coerce_mask_and_coherent(&ndev->dev, DMA_BIT_MASK(32));
+
 	INIT_WORK(&priv->tx_timeout_task, hip04_tx_timeout_task);
 
 	ether_setup(ndev);
