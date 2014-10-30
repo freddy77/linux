@@ -439,8 +439,6 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 		dma_addr_t old_addr = 0;
 		unsigned curr_addr;
 
-		regmap_read(priv->map, priv->port * 4 + PPE_CFG_RX_ADDR, &curr_addr);
-
 		buf = priv->rx_buf[priv->rx_head];
 		if (priv->rx_phys[priv->rx_head] != DMA_ERROR_CODE) {
 			old_addr = priv->rx_phys[priv->rx_head];
@@ -463,6 +461,9 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 //				cpu_relax();
 //				mb();
 //				continue;
+
+				regmap_read(priv->map, priv->port * 4 + PPE_CFG_RX_ADDR, &curr_addr);
+
 				printk(KERN_ERR "XXX %u cnt %d\n", call_count, cnt);
 				hip04_dump_phys(priv, curr_addr, old_addr);
 			}
