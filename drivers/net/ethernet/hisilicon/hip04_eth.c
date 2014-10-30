@@ -280,11 +280,15 @@ static void hip04_mac_disable(struct net_device *ndev)
 
 static void hip04_set_xmit_desc(struct hip04_priv *priv, dma_addr_t phys)
 {
+	/* make sure card will see packet we are sending */
+	mb();
 	writel(phys, priv->base + PPE_CFG_TX_PKT_BD_ADDR);
 }
 
 static void hip04_set_recv_desc(struct hip04_priv *priv, dma_addr_t phys)
 {
+	/* make sure we do not override values */
+	mb();
 	regmap_write(priv->map, priv->port * 4 + PPE_CFG_RX_ADDR, phys);
 }
 
@@ -399,6 +403,17 @@ static int hip04_mac_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 	return NETDEV_TX_OK;
 }
 
+static void hip04_dump_phys(struct hip04_priv *priv, unsigned curr_addr, dma_addr_t old_addr)
+{
+	int i;
+
+	printk(KERN_ERR "hip04: addr %x head %d old %lx\n", curr_addr, priv->rx_head, (unsigned long) old_addr);
+	for (i = 0; i < RX_DESC_NUM; i++) {
+		if (priv->rx_phys[i] == DMA_ERROR_CODE) continue;
+		printk(KERN_ERR "hip04: phys %d addr %lx\n", i, (unsigned long) priv->rx_phys[i]);
+	}
+}
+
 static int hip04_rx_poll(struct napi_struct *napi, int budget)
 {
 	struct hip04_priv *priv = container_of(napi, struct hip04_priv, napi);
@@ -413,13 +428,28 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 	int rx = 0;
 	u16 len;
 	u32 err;
+	static unsigned call_count = 0;
+
+	++call_count;
+
+	/* make sure we read packet from card */
+	mb();
 
 	while (cnt && !last) {
+		dma_addr_t old_addr = 0;
+		unsigned curr_addr;
+
+		regmap_read(priv->map, priv->port * 4 + PPE_CFG_RX_ADDR, &curr_addr);
+
 		buf = priv->rx_buf[priv->rx_head];
 		if (priv->rx_phys[priv->rx_head] != DMA_ERROR_CODE) {
+			old_addr = priv->rx_phys[priv->rx_head];
 			dma_unmap_single(&ndev->dev, priv->rx_phys[priv->rx_head],
 					RX_BUF_SIZE, DMA_FROM_DEVICE);
 			priv->rx_phys[priv->rx_head] = DMA_ERROR_CODE;
+
+			/* make sure we read packet from card */
+			mb();
 		}
 
 		desc = (struct rx_desc *)buf;
@@ -429,6 +459,13 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 		if (0 == len) {
 			last = true;
 		} else if ((err & RX_PKT_ERR) || (len >= GMAC_MAX_PKT_LEN)) {
+			if ( err == 0xbbbbbbbb && len == 0xbbbb ) {
+//				cpu_relax();
+//				mb();
+//				continue;
+				printk(KERN_ERR "XXX %u cnt %d\n", call_count, cnt);
+				hip04_dump_phys(priv, curr_addr, old_addr);
+			}
 			stats->rx_dropped++;
 			stats->rx_errors++;
 		} else {
@@ -450,6 +487,7 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 			priv->rx_buf[priv->rx_head] = buf;
 			if (!buf)
 				return -ENOMEM;
+			memset(buf, 0xbb, priv->rx_buf_size);
 		}
 
 		phys = dma_map_single(&ndev->dev, buf,
@@ -517,6 +555,7 @@ static int hip04_mac_open(struct net_device *ndev)
 	priv->tx_tail = 0;
 	priv->tx_count = 0;
 	hip04_reset_ppe(priv);
+	hip04_config_fifo(priv);
 
 	for (i = 0; i < RX_DESC_NUM; i++) {
 		dma_addr_t phys;
@@ -610,6 +649,7 @@ static int hip04_alloc_ring(struct net_device *ndev, struct device *d)
 		priv->rx_buf[i] = netdev_alloc_frag(priv->rx_buf_size);
 		if (!priv->rx_buf[i])
 			return -ENOMEM;
+		memset(priv->rx_buf[i], 0xbb, priv->rx_buf_size);
 	}
 
 	return 0;
@@ -655,6 +695,12 @@ static int hip04_mac_probe(struct platform_device *pdev)
 	priv->ndev = ndev;
 	spin_lock_init(&priv->lock);
 	platform_set_drvdata(pdev, ndev);
+
+	ret = hip04_alloc_ring(ndev, d);
+	if (ret) {
+		netdev_err(ndev, "alloc ring fail\n");
+		goto alloc_fail;
+	}
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	priv->base = devm_ioremap_resource(d, res);
@@ -729,12 +775,6 @@ static int hip04_mac_probe(struct platform_device *pdev)
 	random_ether_addr(ndev->dev_addr);
 	hip04_update_mac_address(ndev);
 
-	ret = hip04_alloc_ring(ndev, d);
-	if (ret) {
-		netdev_err(ndev, "alloc ring fail\n");
-		goto alloc_fail;
-	}
-
 	setup_timer(&priv->txtimer, hip04_xmit_timer, (unsigned long) ndev);
 	ret = register_netdev(ndev);
 	if (ret) {
@@ -745,8 +785,8 @@ static int hip04_mac_probe(struct platform_device *pdev)
 	return 0;
 
 alloc_fail:
-	hip04_free_ring(ndev, d);
 init_fail:
+	hip04_free_ring(ndev, d);
 	of_node_put(priv->phy_node);
 	free_netdev(ndev);
 	return ret;
