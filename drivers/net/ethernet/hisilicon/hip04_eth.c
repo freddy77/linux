@@ -106,6 +106,7 @@ struct hip04_priv {
 	unsigned int tx_head;
 	unsigned int tx_tail;
 	unsigned int tx_count;
+	unsigned int num_rx_fifo;
 
 	unsigned char *rx_buf[RX_DESC_NUM];
 	dma_addr_t rx_phys[RX_DESC_NUM];
@@ -164,6 +165,7 @@ static void hip04_reset_ppe(struct hip04_priv *priv)
 		regmap_read(priv->map, priv->port * 4 + PPE_CURR_BUF_CNT, &val);
 		regmap_read(priv->map, priv->port * 4 + PPE_CFG_RX_ADDR, &tmp);
 	} while (val & 0xfff);
+	priv->num_rx_fifo = 0;
 }
 
 static void hip04_config_fifo(struct hip04_priv *priv)
@@ -290,11 +292,22 @@ static void hip04_set_recv_desc(struct hip04_priv *priv, dma_addr_t phys)
 	/* make sure we do not override values */
 	mb();
 	regmap_write(priv->map, priv->port * 4 + PPE_CFG_RX_ADDR, phys);
+	++priv->num_rx_fifo;
 }
 
 static u32 hip04_recv_cnt(struct hip04_priv *priv)
 {
-	return readl(priv->base + PPE_HIS_RX_PKT_CNT);
+//	return readl(priv->base + PPE_HIS_RX_PKT_CNT);
+	unsigned val;
+	u32 res;
+
+	regmap_read(priv->map, priv->port * 4 + PPE_CURR_BUF_CNT, &val);
+	val &= 0xfffu;
+	if ( priv->num_rx_fifo < val )
+		printk(KERN_ERR "YYY PACKET COUNT BAD\n");
+	res = priv->num_rx_fifo - val;
+	priv->num_rx_fifo = val;
+	return res;
 }
 
 static void hip04_update_mac_address(struct net_device *ndev)
@@ -424,7 +437,6 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 	struct rx_desc *desc;
 	struct sk_buff *skb;
 	unsigned char *buf;
-	bool last = false;
 	dma_addr_t phys;
 	int rx = 0;
 	u16 len;
@@ -437,7 +449,7 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 	/* make sure we read packet from card */
 	mb();
 
-	while (cnt && !last) {
+	while (cnt) {
 		dma_addr_t old_addr = 0;
 
 		buf = priv->rx_buf[priv->rx_head];
@@ -455,21 +467,11 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 		len = be16_to_cpu(desc->pkt_len);
 		err = be32_to_cpu(desc->pkt_err);
 
-		if (0 == len) {
-			last = true;
-		} else if (err == 0xbbbbbbbb && len == 0xbbbb) {
-			cnt = 1;
-		} else if ((err & RX_PKT_ERR) || (len >= GMAC_MAX_PKT_LEN)) {
-			if ( err == 0xbbbbbbbb && len == 0xbbbb ) {
-//				cpu_relax();
-//				mb();
-//				continue;
+		if (len == 0 || (err & RX_PKT_ERR) || (len >= GMAC_MAX_PKT_LEN)) {
 
-//				regmap_read(priv->map, priv->port * 4 + PPE_CFG_RX_ADDR, &curr_addr);
+			printk(KERN_ERR "XXX %u cnt %d initial count %d\n", call_count, cnt, init_cnt);
+			hip04_dump_phys(priv, curr_addr, old_addr);
 
-				printk(KERN_ERR "XXX %u cnt %d initial count %d\n", call_count, cnt, init_cnt);
-				hip04_dump_phys(priv, curr_addr, old_addr);
-			}
 			stats->rx_dropped++;
 			stats->rx_errors++;
 		} else {
@@ -500,20 +502,12 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 			return -EIO;
 		priv->rx_phys[priv->rx_head] = phys;
 		hip04_set_recv_desc(priv, phys);
-
 		priv->rx_head = RX_NEXT(priv->rx_head);
 		if (rx >= budget)
 			break;
 
 		if (--cnt == 0)
 			cnt = hip04_recv_cnt(priv);
-#if 0
-		else {
-			printk(KERN_ERR "try to keep in sync\n");
-			/* read to get next ?? */
-			regmap_read(priv->map, priv->port * 4 + PPE_CFG_RX_ADDR, &curr_addr);
-		}
-#endif
 	}
 
 	if (rx < budget) {
