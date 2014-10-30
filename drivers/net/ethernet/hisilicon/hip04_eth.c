@@ -462,7 +462,8 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 //				mb();
 //				continue;
 
-				regmap_read(priv->map, priv->port * 4 + PPE_CFG_RX_ADDR, &curr_addr);
+//				regmap_read(priv->map, priv->port * 4 + PPE_CFG_RX_ADDR, &curr_addr);
+				curr_addr = 0;
 
 				printk(KERN_ERR "XXX %u cnt %d\n", call_count, cnt);
 				hip04_dump_phys(priv, curr_addr, old_addr);
