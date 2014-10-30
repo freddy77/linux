@@ -502,6 +502,9 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 		if (rx >= budget)
 			break;
 
+		/* read to get next ?? */
+		regmap_read(priv->map, priv->port * 4 + PPE_CFG_RX_ADDR, &curr_addr);
+
 		if (--cnt == 0)
 			cnt = hip04_recv_cnt(priv);
 	}
