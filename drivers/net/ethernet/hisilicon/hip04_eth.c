@@ -420,6 +420,7 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 	struct net_device *ndev = priv->ndev;
 	struct net_device_stats *stats = &ndev->stats;
 	unsigned int cnt = hip04_recv_cnt(priv);
+	unsigned int init_cnt = cnt;
 	struct rx_desc *desc;
 	struct sk_buff *skb;
 	unsigned char *buf;
@@ -428,6 +429,7 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 	int rx = 0;
 	u16 len;
 	u32 err;
+	unsigned curr_addr = 0;
 	static unsigned call_count = 0;
 
 	++call_count;
@@ -437,7 +439,6 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 
 	while (cnt && !last) {
 		dma_addr_t old_addr = 0;
-		unsigned curr_addr;
 
 		buf = priv->rx_buf[priv->rx_head];
 		if (priv->rx_phys[priv->rx_head] != DMA_ERROR_CODE) {
@@ -456,6 +457,8 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 
 		if (0 == len) {
 			last = true;
+		} else if (err == 0xbbbbbbbb && len == 0xbbbb) {
+			cnt = 1;
 		} else if ((err & RX_PKT_ERR) || (len >= GMAC_MAX_PKT_LEN)) {
 			if ( err == 0xbbbbbbbb && len == 0xbbbb ) {
 //				cpu_relax();
@@ -463,9 +466,8 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 //				continue;
 
 //				regmap_read(priv->map, priv->port * 4 + PPE_CFG_RX_ADDR, &curr_addr);
-				curr_addr = 0;
 
-				printk(KERN_ERR "XXX %u cnt %d\n", call_count, cnt);
+				printk(KERN_ERR "XXX %u cnt %d initial count %d\n", call_count, cnt, init_cnt);
 				hip04_dump_phys(priv, curr_addr, old_addr);
 			}
 			stats->rx_dropped++;
@@ -503,11 +505,15 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 		if (rx >= budget)
 			break;
 
-		/* read to get next ?? */
-		regmap_read(priv->map, priv->port * 4 + PPE_CFG_RX_ADDR, &curr_addr);
-
 		if (--cnt == 0)
 			cnt = hip04_recv_cnt(priv);
+#if 0
+		else {
+			printk(KERN_ERR "try to keep in sync\n");
+			/* read to get next ?? */
+			regmap_read(priv->map, priv->port * 4 + PPE_CFG_RX_ADDR, &curr_addr);
+		}
+#endif
 	}
 
 	if (rx < budget) {
