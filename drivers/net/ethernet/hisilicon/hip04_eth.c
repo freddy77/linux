@@ -469,7 +469,7 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 
 		if (len == 0 || (err & RX_PKT_ERR) || (len >= GMAC_MAX_PKT_LEN)) {
 
-			printk(KERN_ERR "XXX %u cnt %d initial count %d\n", call_count, cnt, init_cnt);
+			printk(KERN_ERR "XXX %u cnt %d initial count %d len %x(%u), err %x(%u) fifo %u\n", call_count, cnt, init_cnt, len, len, (unsigned) err, (unsigned) err, priv->num_rx_fifo);
 			hip04_dump_phys(priv, curr_addr, old_addr);
 
 			stats->rx_dropped++;
