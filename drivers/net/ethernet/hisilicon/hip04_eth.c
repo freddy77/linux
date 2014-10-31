@@ -297,7 +297,6 @@ static void hip04_set_recv_desc(struct hip04_priv *priv, dma_addr_t phys)
 
 static u32 hip04_recv_cnt(struct hip04_priv *priv)
 {
-//	return readl(priv->base + PPE_HIS_RX_PKT_CNT);
 	unsigned val;
 	u32 res;
 
@@ -416,24 +415,12 @@ static int hip04_mac_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 	return NETDEV_TX_OK;
 }
 
-static void hip04_dump_phys(struct hip04_priv *priv, dma_addr_t old_addr)
-{
-	int i;
-
-	printk(KERN_ERR "hip04: head %d old %lx\n", priv->rx_head, (unsigned long) old_addr);
-	for (i = 0; i < RX_DESC_NUM; i++) {
-		if (priv->rx_phys[i] == DMA_ERROR_CODE) continue;
-		printk(KERN_ERR "hip04: phys %d addr %lx\n", i, (unsigned long) priv->rx_phys[i]);
-	}
-}
-
 static int hip04_rx_poll(struct napi_struct *napi, int budget)
 {
 	struct hip04_priv *priv = container_of(napi, struct hip04_priv, napi);
 	struct net_device *ndev = priv->ndev;
 	struct net_device_stats *stats = &ndev->stats;
 	unsigned int cnt = hip04_recv_cnt(priv);
-	unsigned int init_cnt = cnt;
 	volatile struct rx_desc *desc;
 	struct sk_buff *skb;
 	unsigned char *buf;
@@ -441,20 +428,19 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 	int rx = 0;
 	u16 len;
 	u32 err;
-	unsigned readed_again = 999999;
-	static unsigned call_count = 0;
-
-	++call_count;
 
 	/* make sure we read packet from card */
 	mb();
 
 	while (cnt) {
-		dma_addr_t old_addr = 0;
+		/* Read counter again for last packet.
+		 * This make another bus transaction making sure card wrote the packet.
+		 */
+		if (--cnt == 0)
+			cnt = hip04_recv_cnt(priv);
 
 		buf = priv->rx_buf[priv->rx_head];
 		if (priv->rx_phys[priv->rx_head] != DMA_ERROR_CODE) {
-			old_addr = priv->rx_phys[priv->rx_head];
 			dma_unmap_single(&ndev->dev, priv->rx_phys[priv->rx_head],
 					RX_BUF_SIZE, DMA_FROM_DEVICE);
 			priv->rx_phys[priv->rx_head] = DMA_ERROR_CODE;
@@ -464,20 +450,21 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 		}
 
 		desc = (volatile struct rx_desc *)buf;
-try_again:
+//try_again:
 		len = be16_to_cpu(desc->pkt_len);
 		err = be32_to_cpu(desc->pkt_err);
 
 		if (len == 0 && err == 0) {
 			printk(KERN_ERR "Empty packet received, discarding\n");
-			mb();
-			goto try_again;
-			/* ignore packet */
+//			mb();
+//			goto try_again;
+			/* drop packet */
+			stats->rx_dropped++;
+			stats->rx_errors++;
 		} else if ((err & RX_PKT_ERR) || (len >= GMAC_MAX_PKT_LEN)) {
 
-			printk(KERN_ERR "XXX %u cnt %d initial count %d len %x(%u), err %x(%u) fifo %u again %u\n", 
-				call_count, cnt, init_cnt, len, len, (unsigned) err, (unsigned) err, priv->num_rx_fifo, readed_again);
-			hip04_dump_phys(priv, old_addr);
+			printk(KERN_ERR "XXX cnt %d len %x(%u), err %x(%u) fifo %u\n", 
+				cnt, len, len, (unsigned) err, (unsigned) err, priv->num_rx_fifo);
 
 			stats->rx_dropped++;
 			stats->rx_errors++;
@@ -515,15 +502,7 @@ try_again:
 		priv->rx_head = RX_NEXT(priv->rx_head);
 		if (rx >= budget)
 			break;
-
-		if (--cnt == 0) {
-			cnt = hip04_recv_cnt(priv);
-			readed_again = cnt;
-		}
 	}
-
-	if (readed_again != 999999 && readed_again != 0)
-		printk(KERN_ERR "Readed %d more packets in %u\n", cnt, call_count);
 
 	if (rx < budget) {
 		napi_complete(napi);
