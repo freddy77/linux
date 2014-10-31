@@ -421,16 +421,13 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 	struct net_device *ndev = priv->ndev;
 	struct net_device_stats *stats = &ndev->stats;
 	unsigned int cnt = hip04_recv_cnt(priv);
-	volatile struct rx_desc *desc;
+	struct rx_desc *desc;
 	struct sk_buff *skb;
 	unsigned char *buf;
 	dma_addr_t phys;
 	int rx = 0;
 	u16 len;
 	u32 err;
-
-	/* make sure we read packet from card */
-	mb();
 
 	while (cnt) {
 		/* Read counter again for last packet.
@@ -449,21 +446,13 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 			mb();
 		}
 
-		desc = (volatile struct rx_desc *)buf;
-//try_again:
+		desc = (struct rx_desc *)buf;
 		len = be16_to_cpu(desc->pkt_len);
 		err = be32_to_cpu(desc->pkt_err);
 
-		if (len == 0 && err == 0) {
-			printk(KERN_ERR "Empty packet received, discarding\n");
-//			mb();
-//			goto try_again;
-			/* drop packet */
-			stats->rx_dropped++;
-			stats->rx_errors++;
-		} else if ((err & RX_PKT_ERR) || (len >= GMAC_MAX_PKT_LEN)) {
+		if ((err & RX_PKT_ERR) || (len >= GMAC_MAX_PKT_LEN)) {
 
-			printk(KERN_ERR "XXX cnt %d len %x(%u), err %x(%u) fifo %u\n", 
+			printk(KERN_ERR "XXX cnt %d len %x(%u), err %x(%u) fifo %u\n",
 				cnt, len, len, (unsigned) err, (unsigned) err, priv->num_rx_fifo);
 
 			stats->rx_dropped++;
@@ -489,7 +478,7 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 				return -ENOMEM;
 			desc = (struct rx_desc *)buf;
 			desc->pkt_len = 0;
-			desc->pkt_err = 0;
+			desc->pkt_err = __constant_cpu_to_be32(RX_PKT_ERR);
 		}
 
 		phys = dma_map_single(&ndev->dev, buf,
@@ -502,6 +491,10 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 		priv->rx_head = RX_NEXT(priv->rx_head);
 		if (rx >= budget)
 			break;
+
+		/* check if we got another packet after last one */
+		if (cnt == 0)
+			cnt = hip04_recv_cnt(priv);
 	}
 
 	if (rx < budget) {
@@ -650,7 +643,7 @@ static int hip04_alloc_ring(struct net_device *ndev, struct device *d)
 			return -ENOMEM;
 		desc = (struct rx_desc *) priv->rx_buf[i];
 		desc->pkt_len = 0;
-		desc->pkt_err = 0;
+		desc->pkt_err = __constant_cpu_to_be32(RX_PKT_ERR);
 	}
 
 	return 0;
@@ -696,12 +689,6 @@ static int hip04_mac_probe(struct platform_device *pdev)
 	priv->ndev = ndev;
 	spin_lock_init(&priv->lock);
 	platform_set_drvdata(pdev, ndev);
-
-	ret = hip04_alloc_ring(ndev, d);
-	if (ret) {
-		netdev_err(ndev, "alloc ring fail\n");
-		goto alloc_fail;
-	}
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	priv->base = devm_ioremap_resource(d, res);
@@ -776,6 +763,12 @@ static int hip04_mac_probe(struct platform_device *pdev)
 	random_ether_addr(ndev->dev_addr);
 	hip04_update_mac_address(ndev);
 
+	ret = hip04_alloc_ring(ndev, d);
+	if (ret) {
+		netdev_err(ndev, "alloc ring fail\n");
+		goto alloc_fail;
+	}
+
 	setup_timer(&priv->txtimer, hip04_xmit_timer, (unsigned long) ndev);
 	ret = register_netdev(ndev);
 	if (ret) {
@@ -786,8 +779,8 @@ static int hip04_mac_probe(struct platform_device *pdev)
 	return 0;
 
 alloc_fail:
-init_fail:
 	hip04_free_ring(ndev, d);
+init_fail:
 	of_node_put(priv->phy_node);
 	free_netdev(ndev);
 	return ret;
