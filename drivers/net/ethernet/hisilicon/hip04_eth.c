@@ -434,7 +434,7 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 	struct net_device_stats *stats = &ndev->stats;
 	unsigned int cnt = hip04_recv_cnt(priv);
 	unsigned int init_cnt = cnt;
-	struct rx_desc *desc;
+	volatile struct rx_desc *desc;
 	struct sk_buff *skb;
 	unsigned char *buf;
 	dma_addr_t phys;
@@ -463,11 +463,15 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 			mb();
 		}
 
-		desc = (struct rx_desc *)buf;
+		desc = (volatile struct rx_desc *)buf;
+try_again:
 		len = be16_to_cpu(desc->pkt_len);
 		err = be32_to_cpu(desc->pkt_err);
 
 		if (len == 0 && err == 0) {
+			printk(KERN_ERR "Empty packet received, discarding\n");
+			mb();
+			goto try_again;
 			/* ignore packet */
 		} else if ((err & RX_PKT_ERR) || (len >= GMAC_MAX_PKT_LEN)) {
 
