@@ -106,6 +106,7 @@ struct hip04_priv {
 	unsigned int tx_head;
 	unsigned int tx_tail;
 	unsigned int tx_count;
+	unsigned int num_rx_fifo;
 
 	unsigned char *rx_buf[RX_DESC_NUM];
 	dma_addr_t rx_phys[RX_DESC_NUM];
@@ -164,6 +165,7 @@ static void hip04_reset_ppe(struct hip04_priv *priv)
 		regmap_read(priv->map, priv->port * 4 + PPE_CURR_BUF_CNT, &val);
 		regmap_read(priv->map, priv->port * 4 + PPE_CFG_RX_ADDR, &tmp);
 	} while (val & 0xfff);
+	priv->num_rx_fifo = 0;
 }
 
 static void hip04_config_fifo(struct hip04_priv *priv)
@@ -286,11 +288,20 @@ static void hip04_set_xmit_desc(struct hip04_priv *priv, dma_addr_t phys)
 static void hip04_set_recv_desc(struct hip04_priv *priv, dma_addr_t phys)
 {
 	regmap_write(priv->map, priv->port * 4 + PPE_CFG_RX_ADDR, phys);
+	++priv->num_rx_fifo;
 }
 
 static u32 hip04_recv_cnt(struct hip04_priv *priv)
 {
-	return readl(priv->base + PPE_HIS_RX_PKT_CNT);
+	unsigned val;
+	u32 res;
+
+	regmap_read(priv->map, priv->port * 4 + PPE_CURR_BUF_CNT, &val);
+	val &= 0xfffu;
+	if ( priv->num_rx_fifo < val )
+		printk(KERN_ERR "YYY PACKET COUNT BAD\n");
+	res = priv->num_rx_fifo - val;
+	return res;
 }
 
 static void hip04_update_mac_address(struct net_device *ndev)
@@ -459,9 +470,12 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 		if (dma_mapping_error(&ndev->dev, phys))
 			return -EIO;
 		priv->rx_phys[priv->rx_head] = phys;
-		hip04_set_recv_desc(priv, phys);
 
 		priv->rx_head = RX_NEXT(priv->rx_head);
+		--priv->num_rx_fifo;
+
+		hip04_set_recv_desc(priv, phys);
+
 		if (rx >= budget)
 			break;
 
