@@ -420,13 +420,12 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 	struct rx_desc *desc;
 	struct sk_buff *skb;
 	unsigned char *buf;
-	bool last = false;
 	dma_addr_t phys;
 	int rx = 0;
 	u16 len;
 	u32 err;
 
-	while (cnt && !last) {
+	while (cnt) {
 		--cnt;
 
 		buf = priv->rx_buf[priv->rx_head];
@@ -440,9 +439,7 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 		len = be16_to_cpu(desc->pkt_len);
 		err = be32_to_cpu(desc->pkt_err);
 
-		if (0 == len) {
-			last = true;
-		} else if ((err & RX_PKT_ERR) || (len >= GMAC_MAX_PKT_LEN)) {
+		if ((err & RX_PKT_ERR) || (len >= GMAC_MAX_PKT_LEN)) {
 			stats->rx_dropped++;
 			stats->rx_errors++;
 		} else {
