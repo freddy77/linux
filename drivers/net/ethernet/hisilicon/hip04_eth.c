@@ -112,6 +112,7 @@ struct hip04_priv {
 	dma_addr_t rx_phys[RX_DESC_NUM];
 	unsigned int rx_head;
 	unsigned int rx_buf_size;
+	u32 cnt;
 
 	struct device_node *phy_node;
 	struct phy_device *phy;
@@ -415,7 +416,7 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 	struct hip04_priv *priv = container_of(napi, struct hip04_priv, napi);
 	struct net_device *ndev = priv->ndev;
 	struct net_device_stats *stats = &ndev->stats;
-	unsigned int cnt = hip04_recv_cnt(priv);
+	unsigned int cnt = priv->cnt;
 	struct rx_desc *desc;
 	struct sk_buff *skb;
 	unsigned char *buf;
@@ -426,6 +427,8 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 	u32 err;
 
 	while (cnt && !last) {
+		--cnt;
+
 		buf = priv->rx_buf[priv->rx_head];
 		if (priv->rx_phys[priv->rx_head] != DMA_ERROR_CODE) {
 			dma_unmap_single(&ndev->dev, priv->rx_phys[priv->rx_head],
@@ -478,10 +481,9 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 
 		if (rx >= budget)
 			break;
-
-		if (--cnt == 0)
-			cnt = hip04_recv_cnt(priv);
 	}
+
+	priv->cnt = cnt;
 
 	if (rx < budget) {
 		napi_complete(napi);
@@ -505,6 +507,7 @@ static irqreturn_t hip04_mac_interrupt(int irq, void *dev_id)
 	if (ists & (RCV_INT | RCV_NOBUF)) {
 		/* disable rx interrupt */
 		priv->reg_inten &= ~(RCV_INT | RCV_NOBUF);
+		priv->cnt = hip04_recv_cnt(priv);
 		writel_relaxed(priv->reg_inten, priv->base + PPE_INTEN);
 		napi_schedule(&priv->napi);
 	}
