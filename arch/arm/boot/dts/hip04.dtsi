@@ -324,5 +324,10 @@
 			port-handle = <&ppe 8 2>;
 			phy-handle = <&phy1>;
 		};
+
+		serdes: serdes@2000000 {
+			compatible = "hisilicon,hip04-serdes-dummy";
+			reg = <0x2800000 0x100000>, <0x3e00000 0x100000>, <0xb000000 0x10000>, <0x8000000 0x3000>;
+		};
 	};
 };

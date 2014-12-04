@@ -378,7 +378,7 @@ void serdes_exit(void)
 }
 
 
-//subsys_initcall(serdes_init);
+subsys_initcall(serdes_init);
 
 
 #ifdef __cplusplus
