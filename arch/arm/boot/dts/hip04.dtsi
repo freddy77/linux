@@ -44,7 +44,7 @@
 					cpu = <&CPU3>;
 				};
 			};
-/*			cluster1 {
+			cluster1 {
 				core0 {
 					cpu = <&CPU4>;
 				};
@@ -86,7 +86,7 @@
 					cpu = <&CPU15>;
 				};
 			};
- */		};
+		};
 		CPU0: cpu@0 {
 			device_type = "cpu";
 			compatible = "arm,cortex-a15";
@@ -107,7 +107,7 @@
 			compatible = "arm,cortex-a15";
 			reg = <3>;
 		};
-/*		CPU4: cpu@100 {
+		CPU4: cpu@100 {
 			device_type = "cpu";
 			compatible = "arm,cortex-a15";
 			reg = <0x100>;
@@ -167,7 +167,6 @@
 			compatible = "arm,cortex-a15";
 			reg = <0x303>;
 		};
- */
 	};
 
 	clk_50m: clk_50m {
