@@ -112,6 +112,7 @@ struct hip04_priv {
 	dma_addr_t rx_phys[RX_DESC_NUM];
 	unsigned int rx_head;
 	unsigned int rx_buf_size;
+	u32 cnt;
 
 	struct device_node *phy_node;
 	struct phy_device *phy;
@@ -282,15 +283,11 @@ static void hip04_mac_disable(struct net_device *ndev)
 
 static void hip04_set_xmit_desc(struct hip04_priv *priv, dma_addr_t phys)
 {
-	/* make sure card will see packet we are sending */
-	wmb();
 	writel(phys, priv->base + PPE_CFG_TX_PKT_BD_ADDR);
 }
 
 static void hip04_set_recv_desc(struct hip04_priv *priv, dma_addr_t phys)
 {
-	/* make sure we do not override values */
-	wmb();
 	regmap_write(priv->map, priv->port * 4 + PPE_CFG_RX_ADDR, phys);
 	++priv->num_rx_fifo;
 }
@@ -305,7 +302,6 @@ static u32 hip04_recv_cnt(struct hip04_priv *priv)
 	if ( priv->num_rx_fifo < val )
 		printk(KERN_ERR "YYY PACKET COUNT BAD\n");
 	res = priv->num_rx_fifo - val;
-	priv->num_rx_fifo = val;
 	return res;
 }
 
@@ -420,7 +416,7 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 	struct hip04_priv *priv = container_of(napi, struct hip04_priv, napi);
 	struct net_device *ndev = priv->ndev;
 	struct net_device_stats *stats = &ndev->stats;
-	unsigned int cnt = hip04_recv_cnt(priv);
+	unsigned int cnt = priv->cnt;
 	struct rx_desc *desc;
 	struct sk_buff *skb;
 	unsigned char *buf;
@@ -430,20 +426,13 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 	u32 err;
 
 	while (cnt) {
-		/* Read counter again for last packet.
-		 * This make another bus transaction making sure card wrote the packet.
-		 */
-		if (--cnt == 0)
-			cnt = hip04_recv_cnt(priv);
+		--cnt;
 
 		buf = priv->rx_buf[priv->rx_head];
 		if (priv->rx_phys[priv->rx_head] != DMA_ERROR_CODE) {
 			dma_unmap_single(&ndev->dev, priv->rx_phys[priv->rx_head],
 					RX_BUF_SIZE, DMA_FROM_DEVICE);
 			priv->rx_phys[priv->rx_head] = DMA_ERROR_CODE;
-
-			/* make sure we read packet from card */
-			mb();
 		}
 
 		desc = (struct rx_desc *)buf;
@@ -458,8 +447,13 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 			stats->rx_dropped++;
 			stats->rx_errors++;
 		} else {
-			skb = build_skb(buf, priv->rx_buf_size);
+			buf = netdev_alloc_frag(priv->rx_buf_size);
+			if (!buf)
+				return -ENOMEM;
+
+			skb = build_skb(desc, priv->rx_buf_size);
 			if (unlikely(!skb)) {
+				put_page(virt_to_head_page(buf));
 				net_dbg_ratelimited("build_skb failed\n");
 				return -ENOMEM;
 			}
@@ -472,13 +466,11 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 			stats->rx_bytes += len;
 			rx++;
 
-			buf = netdev_alloc_frag(priv->rx_buf_size);
 			priv->rx_buf[priv->rx_head] = buf;
-			if (!buf)
-				return -ENOMEM;
+
 			desc = (struct rx_desc *)buf;
 			desc->pkt_len = 0;
-			desc->pkt_err = __constant_cpu_to_be32(RX_PKT_ERR);
+			desc->pkt_err = __constant_cpu_to_be32(0xdeadbeef);
 		}
 
 		phys = dma_map_single(&ndev->dev, buf,
@@ -486,16 +478,17 @@ static int hip04_rx_poll(struct napi_struct *napi, int budget)
 		if (dma_mapping_error(&ndev->dev, phys))
 			return -EIO;
 		priv->rx_phys[priv->rx_head] = phys;
-		hip04_set_recv_desc(priv, phys);
 
 		priv->rx_head = RX_NEXT(priv->rx_head);
+		--priv->num_rx_fifo;
+
+		hip04_set_recv_desc(priv, phys);
+
 		if (rx >= budget)
 			break;
-
-		/* check if we got another packet after last one */
-		if (cnt == 0)
-			cnt = hip04_recv_cnt(priv);
 	}
+
+	priv->cnt = cnt;
 
 	if (rx < budget) {
 		napi_complete(napi);
@@ -520,6 +513,7 @@ static irqreturn_t hip04_mac_interrupt(int irq, void *dev_id)
 		/* disable rx interrupt */
 		priv->reg_inten &= ~(RCV_INT | RCV_NOBUF);
 		writel_relaxed(priv->reg_inten, priv->base + PPE_INTEN);
+		priv->cnt = hip04_recv_cnt(priv);
 		napi_schedule(&priv->napi);
 	}
 
@@ -643,7 +637,7 @@ static int hip04_alloc_ring(struct net_device *ndev, struct device *d)
 			return -ENOMEM;
 		desc = (struct rx_desc *) priv->rx_buf[i];
 		desc->pkt_len = 0;
-		desc->pkt_err = __constant_cpu_to_be32(RX_PKT_ERR);
+		desc->pkt_err = __constant_cpu_to_be32(0xdeadbeef);
 	}
 
 	return 0;
