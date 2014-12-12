@@ -415,8 +415,13 @@ static int __init do_early_param(char *param, char *val, const char *unused)
 	return 0;
 }
 
+extern void early_write(const char *s, unsigned n);
+
 void __init parse_early_options(char *cmdline)
 {
+	early_write("CMDLINE=", 8);
+	early_write(cmdline, strlen(cmdline));
+
 	parse_args("early options", cmdline, NULL, 0, 0, 0, do_early_param);
 }
 
@@ -428,6 +433,8 @@ void __init parse_early_param(void)
 
 	if (done)
 		return;
+
+//	strlcpy(boot_command_line, "console=ttyS0,115200 earlyprintk root=/dev/sda2 rw", COMMAND_LINE_SIZE);
 
 	/* All fall through to do_early_param. */
 	strlcpy(tmp_cmdline, boot_command_line, COMMAND_LINE_SIZE);

@@ -14,7 +14,7 @@
 
 extern void printch(int);
 
-static void early_write(const char *s, unsigned n)
+void early_write(const char *s, unsigned n)
 {
 	while (n-- > 0) {
 		if (*s == '\n')
