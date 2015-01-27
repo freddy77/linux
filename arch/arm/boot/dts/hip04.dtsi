@@ -20,9 +20,11 @@
 		serial0 = &uart0;
 	};
 
-	bootwrapper {
-		compatible = "hisilicon,hip04-bootwrapper";
-		boot-method = <0x10c00000 0x10000>, <0xe0000100 0x1000>;
+	psci {
+		compatible = "arm,psci-0.2", "arm,psci";
+		method = "smc";
+
+		cpu_on = <0x84000003>;
 	};
 
 	cpus {
