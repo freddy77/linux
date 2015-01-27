@@ -419,8 +419,8 @@ extern void early_write(const char *s, unsigned n);
 
 void __init parse_early_options(char *cmdline)
 {
-	early_write("CMDLINE=", 8);
-	early_write(cmdline, strlen(cmdline));
+//	early_write("CMDLINE=", 8);
+//	early_write(cmdline, strlen(cmdline));
 
 	parse_args("early options", cmdline, NULL, 0, 0, 0, do_early_param);
 }
