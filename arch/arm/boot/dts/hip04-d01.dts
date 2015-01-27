@@ -21,6 +21,10 @@
 	model = "Hisilicon D01 Development Board";
 	compatible = "hisilicon,hip04-d01";
 
+	chosen {
+		bootargs = "console=ttyS0,115200 earlyprintk root=/dev/sda2 rw init=/bin/bash";
+	};
+
 	memory@00000000,10000000 {
 		device_type = "memory";
 		reg = <0x00000000 0x10000000 0x00000000 0xc0000000>;
