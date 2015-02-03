@@ -77,7 +77,19 @@ extern char __kvm_hyp_code_end[];
 extern void __kvm_flush_vm_context(void);
 extern void __kvm_tlb_flush_vmid_ipa(struct kvm *kvm, phys_addr_t ipa);
 
+extern void __kvm_set_vectors(unsigned long phys_vector_base);
+
 extern int __kvm_vcpu_run(struct kvm_vcpu *vcpu);
+
+#ifdef CONFIG_HAVE_KVM
+static void kvm_cpu_reset(void (*phys_reset)(void *), void *addr)
+{
+	phys_reset(addr);
+}
+#else
+extern void kvm_cpu_reset(void (*phys_reset)(void *), void *addr);
+#endif
+
 #endif
 
 #endif /* __ARM_KVM_ASM_H__ */
