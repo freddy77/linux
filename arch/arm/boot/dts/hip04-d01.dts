@@ -9,9 +9,6 @@
 
 /dts-v1/;
 
-/* For bootwrapper */
-/memreserve/ 0x10c00000 0x00010000;
-
 #include "hip04.dtsi"
 
 / {
@@ -22,7 +19,8 @@
 	compatible = "hisilicon,hip04-d01";
 
 	chosen {
-		bootargs = "console=ttyS0,115200 earlyprintk root=/dev/sda2 rw init=/bin/bash";
+/*		bootargs = "console=ttyS0,115200 earlyprintk root=/dev/sda2 rw"; */
+		bootargs = "console=ttyS0,115200 earlyprintk rootfstype=nfsroot root=/dev/nfs rw nfsroot=192.168.1.102:/binary ip=192.168.1.12:192.168.1.102:192.168.1.102:255.255.255.0::eth0:on:192.168.1.102:8.8.8.8 user_debug=31";
 	};
 
 	memory@00000000,10000000 {
