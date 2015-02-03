@@ -1091,8 +1091,15 @@ void kvm_cpu_reset(void (*phys_reset)(void *), void *addr)
 	/* set HVBAR to physical, page table to identity to do the switch */
 	kvm_call_hyp((void*) 0x100, (unsigned long) vector, kvm_mmu_get_boot_httbr());
 
+	flush_cache_all();
+
+	/* Turn off caching on Hypervisor mode */
+	kvm_call_hyp((void*) 1);
+
+	flush_cache_all();
+
 	/* restore execution */
-	kvm_call_hyp((void*) 1, kvm_saved_sctlr, addr);
+	kvm_call_hyp((void*) 3, kvm_saved_sctlr, addr);
 }
 
 /* NOP: Compiling as a module not supported */
