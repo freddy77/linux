@@ -63,6 +63,8 @@ static DEFINE_SPINLOCK(kvm_vmid_lock);
 
 static bool vgic_present;
 
+unsigned kvm_saved_sctlr;
+
 static void kvm_arm_set_running_vcpu(struct kvm_vcpu *vcpu)
 {
 	BUG_ON(preemptible());
@@ -1005,7 +1007,7 @@ static int init_hyp_mode(void)
 		goto out_free_mappings;
 
 #ifndef CONFIG_HOTPLUG_CPU
-	free_boot_hyp_pgd();
+//	free_boot_hyp_pgd();
 #endif
 
 	kvm_perf_init();
@@ -1067,6 +1069,30 @@ int kvm_arch_init(void *opaque)
 	return 0;
 out_err:
 	return err;
+}
+
+void kvm_cpu_reset(void (*phys_reset)(void *), void *addr)
+{
+	unsigned long vector;
+
+	if (!is_hyp_mode_available()) {
+		phys_reset(addr);
+		return;
+	}
+
+	vector = (unsigned long) kvm_get_idmap_vector();
+
+	kvm_call_hyp(__kvm_flush_vm_context);
+
+	/* set vectors so we call initialization routines */
+	/* trampoline is still on memory, physical ram is not mapped */
+	kvm_call_hyp(__kvm_set_vectors,(unsigned long) (TRAMPOLINE_VA + (vector & (PAGE_SIZE-1))));
+
+	/* set HVBAR to physical, page table to identity to do the switch */
+	kvm_call_hyp((void*) 0x100, (unsigned long) vector, kvm_mmu_get_boot_httbr());
+
+	/* restore execution */
+	kvm_call_hyp((void*) 1, kvm_saved_sctlr, addr);
 }
 
 /* NOP: Compiling as a module not supported */

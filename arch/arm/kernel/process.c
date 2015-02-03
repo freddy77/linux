@@ -41,6 +41,7 @@
 #include <asm/stacktrace.h>
 #include <asm/mach/time.h>
 #include <asm/tls.h>
+#include <asm/kvm_asm.h>
 
 #ifdef CONFIG_CC_STACKPROTECTOR
 #include <linux/stackprotector.h>
@@ -60,7 +61,7 @@ static const char *isa_modes[] = {
 };
 
 extern void call_with_stack(void (*fn)(void *), void *arg, void *sp);
-typedef void (*phys_reset_t)(unsigned long);
+typedef void (*phys_reset_t)(void *);
 
 /*
  * A temporary stack to use for CPU reset. This is static so that we
@@ -89,7 +90,8 @@ static void __soft_restart(void *addr)
 
 	/* Switch to the identity mapping. */
 	phys_reset = (phys_reset_t)(unsigned long)virt_to_phys(cpu_reset);
-	phys_reset((unsigned long)addr);
+
+	kvm_cpu_reset(phys_reset, addr);
 
 	/* Should never get here. */
 	BUG();

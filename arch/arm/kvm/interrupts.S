@@ -87,6 +87,18 @@ ENDPROC(__kvm_flush_vm_context)
 
 
 /********************************************************************
+ * Set HVBAR
+ *
+ * void __kvm_set_vectors(unsigned long phys_vector_base);
+ */
+ENTRY(__kvm_set_vectors)
+	mcr	p15, 4, r0, c12, c0, 0	@ set HVBAR
+	dsb	ish
+	isb
+	bx	lr
+ENDPROC(__kvm_set_vectors)
+
+/********************************************************************
  *  Hypervisor world-switch code
  *
  *
