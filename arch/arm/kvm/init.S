@@ -69,6 +69,8 @@ __kvm_hyp_init:
 __do_hyp_init:
 	@ check for special values, odd numbers can't be a stack pointer
 	cmp	r0, #1
+	beq	cpu_proc_fin
+	cmp	r0, #3
 	beq	restore
 
 	cmp	r0, #0			@ We have a SP?
@@ -154,6 +156,13 @@ target:	@ We're now in the trampoline code, switch page tables
 	mcr	p15, 4, r0, c8, c7, 0	@ TLBIALLH
 	dsb	ish
 
+	eret
+
+cpu_proc_fin:
+	mrc	p15, 4, r0, c1, c0, 0		@ ctrl register
+	bic	r0, r0, #0x1000			@ ...i............
+	bic	r0, r0, #0x0006			@ .............ca.
+	mcr	p15, 4, r0, c1, c0, 0		@ disable caches
 	eret
 
 restore:
