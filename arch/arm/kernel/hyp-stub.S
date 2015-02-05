@@ -166,12 +166,62 @@ THUMB(	orr	r7, #(1 << 30)	)	@ HSCTLR.TE
 	bx	lr			@ The boot CPU mode is left in r4.
 ENDPROC(__hyp_stub_install_secondary)
 
+#undef CPU_RESET
+#if defined(CONFIG_ARM_VIRT_EXT) && !defined(CONFIG_KVM) && !defined(ZIMAGE)
+#  define CPU_RESET 1
+#endif
+
 __hyp_stub_do_trap:
+#ifdef CPU_RESET
+	cmp	r0, #-2
+	bne	1f
+
+	mrc	p15, 4, r0, c1, c0, 0	@ HSCR
+	ldr	r2, =0x40003807
+	bic	r0, r0, r2
+	mcr	p15, 4, r0, c1, c0, 0	@ HSCR
+	isb
+
+	@ Disable MMU, caches and Thumb in SCTLR
+	mrc	p15, 0, r0, c1, c0, 0	@ SCTLR
+	bic	r0, r0, r2
+	mcr	p15, 0, r0, c1, c0, 0
+
+	bx	r1
+	.ltorg
+1:
+#endif
 	cmp	r0, #-1
 	mrceq	p15, 4, r0, c12, c0, 0	@ get HVBAR
 	mcrne	p15, 4, r0, c12, c0, 0	@ set HVBAR
 	__ERET
 ENDPROC(__hyp_stub_do_trap)
+
+#ifdef CPU_RESET
+/*
+ * r0 cpu_reset function
+ * r1 address to jump to
+ */
+ENTRY(kvm_cpu_reset)
+	mov	r2, r0
+
+	@ __boot_cpu_mode should be HYP_MODE
+	adr	r0, .L__boot_cpu_mode_offset
+	ldr	r3, [r0]
+	ldr	r0, [r0, r3]
+	cmp	r0, #HYP_MODE
+	beq	reset_to_hyp
+
+	@ Call SVC mode cpu_reset
+	mov	r0, r1
+THUMB(	orr	r2, r2, 1	)
+	bx	r2
+
+reset_to_hyp:
+	mov	r0, #-2
+	b	__hyp_set_vectors
+ENDPROC(kvm_cpu_reset)
+#endif
 
 /*
  * __hyp_set_vectors: Call this after boot to set the initial hypervisor
