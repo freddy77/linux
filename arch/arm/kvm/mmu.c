@@ -44,6 +44,8 @@ static phys_addr_t hyp_idmap_vector;
 
 #define kvm_pmd_huge(_x)	(pmd_huge(_x) || pmd_trans_huge(_x))
 
+static int kvm_mmu_boot_init(void);
+
 static void kvm_tlb_flush_vmid_ipa(struct kvm *kvm, phys_addr_t ipa)
 {
 	/*
@@ -196,7 +198,6 @@ void free_boot_hyp_pgd(void)
 {
 	mutex_lock(&kvm_hyp_pgd_mutex);
 
-#if 0
 	if (boot_hyp_pgd) {
 		unmap_range(NULL, boot_hyp_pgd, hyp_idmap_start, PAGE_SIZE);
 		unmap_range(NULL, boot_hyp_pgd, TRAMPOLINE_VA, PAGE_SIZE);
@@ -209,7 +210,6 @@ void free_boot_hyp_pgd(void)
 
 	kfree(init_bounce_page);
 	init_bounce_page = NULL;
-#endif
 
 	/* avoid to reuse possibly invalid values if bounce page is freed */
 	hyp_idmap_start = 0;
@@ -921,7 +921,28 @@ phys_addr_t kvm_get_idmap_vector(void)
 	return hyp_idmap_vector;
 }
 
-int kvm_mmu_init(void)
+/* assure we have MMU setup correctly */
+int kvm_mmu_reset_prepare(void)
+{
+	int err = 0;
+
+	if (boot_hyp_pgd)
+		goto out;
+
+	err = kvm_mmu_boot_init();
+	if (err)
+		goto out;
+
+	err = 	__create_hyp_mappings(hyp_pgd,
+				      TRAMPOLINE_VA, TRAMPOLINE_VA + PAGE_SIZE,
+				      __phys_to_pfn(hyp_idmap_start),
+				      PAGE_HYP);
+
+out:
+	return err;
+}
+
+static int kvm_mmu_boot_init(void)
 {
 	int err;
 
@@ -963,9 +984,8 @@ int kvm_mmu_init(void)
 			 (unsigned long)phys_base);
 	}
 
-	hyp_pgd = kzalloc(PTRS_PER_PGD * sizeof(pgd_t), GFP_KERNEL);
 	boot_hyp_pgd = kzalloc(PTRS_PER_PGD * sizeof(pgd_t), GFP_KERNEL);
-	if (!hyp_pgd || !boot_hyp_pgd) {
+	if (!boot_hyp_pgd) {
 		kvm_err("Hyp mode PGD not allocated\n");
 		err = -ENOMEM;
 		goto out;
@@ -994,6 +1014,27 @@ int kvm_mmu_init(void)
 		goto out;
 	}
 
+	return 0;
+out:
+	free_boot_hyp_pgd();
+	return err;
+}
+
+int kvm_mmu_init(void)
+{
+	int err;
+
+	err = kvm_mmu_boot_init();
+	if (err)
+		goto out0;
+
+	hyp_pgd = kzalloc(PTRS_PER_PGD * sizeof(pgd_t), GFP_KERNEL);
+	if (!hyp_pgd) {
+		kvm_err("Hyp mode PGD not allocated\n");
+		err = -ENOMEM;
+		goto out;
+	}
+
 	/* Map the same page again into the runtime page tables */
 	err = 	__create_hyp_mappings(hyp_pgd,
 				      TRAMPOLINE_VA, TRAMPOLINE_VA + PAGE_SIZE,
@@ -1008,5 +1049,6 @@ int kvm_mmu_init(void)
 	return 0;
 out:
 	free_hyp_pgds();
+out0:
 	return err;
 }

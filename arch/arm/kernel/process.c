@@ -90,7 +90,6 @@ static void __soft_restart(void *addr)
 
 	/* Switch to the identity mapping. */
 	phys_reset = (phys_reset_t)(unsigned long)virt_to_phys(cpu_reset);
-
 	kvm_cpu_reset(phys_reset, addr);
 
 	/* Should never get here. */
@@ -108,6 +107,8 @@ void soft_restart(unsigned long addr)
 	/* Disable the L2 if we're the last man standing. */
 	if (num_online_cpus() == 1)
 		outer_disable();
+
+	kvm_mmu_reset_prepare();
 
 	/* Change to the new stack and continue with the reset. */
 	call_with_stack(__soft_restart, (void *)addr, (void *)stack);

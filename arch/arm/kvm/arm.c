@@ -1007,7 +1007,7 @@ static int init_hyp_mode(void)
 		goto out_free_mappings;
 
 #ifndef CONFIG_HOTPLUG_CPU
-//	free_boot_hyp_pgd();
+	free_boot_hyp_pgd();
 #endif
 
 	kvm_perf_init();

@@ -86,8 +86,13 @@ static void kvm_cpu_reset(void (*phys_reset)(void *), void *addr)
 {
 	phys_reset(addr);
 }
+static inline int kvm_mmu_reset_prepare(void)
+{
+	return 0;
+}
 #else
 extern void kvm_cpu_reset(void (*phys_reset)(void *), void *addr);
+extern int kvm_mmu_reset_prepare(void);
 #endif
 
 #endif
