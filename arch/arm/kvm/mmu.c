@@ -196,7 +196,6 @@ void free_boot_hyp_pgd(void)
 {
 	mutex_lock(&kvm_hyp_pgd_mutex);
 
-#if 0
 	if (boot_hyp_pgd) {
 		unmap_range(NULL, boot_hyp_pgd, hyp_idmap_start, PAGE_SIZE);
 		unmap_range(NULL, boot_hyp_pgd, TRAMPOLINE_VA, PAGE_SIZE);
@@ -209,7 +208,6 @@ void free_boot_hyp_pgd(void)
 
 	kfree(init_bounce_page);
 	init_bounce_page = NULL;
-#endif
 
 	/* avoid to reuse possibly invalid values if bounce page is freed */
 	hyp_idmap_start = 0;

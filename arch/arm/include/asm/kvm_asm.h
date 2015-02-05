@@ -81,7 +81,7 @@ extern void __kvm_set_vectors(unsigned long phys_vector_base);
 
 extern int __kvm_vcpu_run(struct kvm_vcpu *vcpu);
 
-#ifdef CONFIG_HAVE_KVM
+#ifndef CONFIG_ARM_VIRT_EXT
 static void kvm_cpu_reset(void (*phys_reset)(void *), void *addr)
 {
 	phys_reset(addr);

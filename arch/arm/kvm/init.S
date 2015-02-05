@@ -79,9 +79,6 @@ __do_hyp_init:
 	@ Set the HTTBR to point to the hypervisor PGD pointer passed
 	mcrr	p15, 4, r2, r3, c2
 
-	@ Save HSCR to be able to return it, save and restore
-	mrc	p15, 4, r3, c1, c0, 0	@ HSCR
-
 	@ Set the HTCR and VTCR to the same shareability and cacheability
 	@ settings as the non-secure TTBCR and with T0SZ == 0.
 	mrc	p15, 4, r0, c2, c0, 2	@ HTCR
@@ -129,9 +126,6 @@ __do_hyp_init:
 	isb
 	mcr	p15, 4, r0, c1, c0, 0	@ HSCR
 
-	@ Return initial HSCR register
-	mov	r0, r3
-
 	@ End of init phase-1
 	eret
 
@@ -166,20 +160,24 @@ cpu_proc_fin:
 	eret
 
 restore:
+	@ Disable MMU, caches and Thumb in HSCTLR
+	mrc	p15, 4, r0, c1, c0, 0	@ HSCR
+	ldr	r2, =0x40003807
+	bic	r0, r0, r2
+	mcr	p15, 4, r0, c1, c0, 0	@ HSCR
 	isb
-	mcr	p15, 4, r1, c1, c0, 0	@ HSCR
-	isb
+
+	@ Invalidate old TLBs
 	mcr	p15, 4, r0, c8, c7, 0	@ TLBIALLH
 	isb
 	dsb	ish
 
 	@ Disable MMU, caches and Thumb in SCTLR
-	mrc	p15, 0, r1, c1, c0, 0   @ SCTLR
-	ldr	r0, =0x40003807
-	bic	r1, r1, r0
-	mcr	p15, 0, r1, c1, c0, 0
+	mrc	p15, 0, r0, c1, c0, 0   @ SCTLR
+	bic	r0, r0, r2
+	mcr	p15, 0, r0, c1, c0, 0
 
-	bx	r2
+	bx	r1
 
 	.ltorg
 

@@ -191,8 +191,6 @@ int kvm_arm_coproc_set_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *);
 int handle_exit(struct kvm_vcpu *vcpu, struct kvm_run *run,
 		int exception_index);
 
-extern unsigned kvm_saved_sctlr;
-
 static inline void __cpu_init_hyp_mode(phys_addr_t boot_pgd_ptr,
 				       phys_addr_t pgd_ptr,
 				       unsigned long hyp_stack_ptr,
@@ -214,7 +212,7 @@ static inline void __cpu_init_hyp_mode(phys_addr_t boot_pgd_ptr,
 	 * PCS!).
 	 */
 
-	kvm_saved_sctlr = (unsigned) kvm_call_hyp(NULL, 0, boot_pgd_ptr);
+	kvm_call_hyp(NULL, 0, boot_pgd_ptr);
 
 	kvm_call_hyp((void*)hyp_stack_ptr, vector_ptr, pgd_ptr);
 }

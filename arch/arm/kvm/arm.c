@@ -63,8 +63,6 @@ static DEFINE_SPINLOCK(kvm_vmid_lock);
 
 static bool vgic_present;
 
-unsigned kvm_saved_sctlr;
-
 static void kvm_arm_set_running_vcpu(struct kvm_vcpu *vcpu)
 {
 	BUG_ON(preemptible());
@@ -1006,8 +1004,8 @@ static int init_hyp_mode(void)
 	if (err)
 		goto out_free_mappings;
 
-#ifndef CONFIG_HOTPLUG_CPU
-//	free_boot_hyp_pgd();
+#if !defined(CONFIG_HOTPLUG_CPU) && !defined(CONFIG_KEXEC)
+	free_boot_hyp_pgd();
 #endif
 
 	kvm_perf_init();
@@ -1082,24 +1080,40 @@ void kvm_cpu_reset(void (*phys_reset)(void *), void *addr)
 
 	vector = (unsigned long) kvm_get_idmap_vector();
 
-	kvm_call_hyp(__kvm_flush_vm_context);
-
-	/* set vectors so we call initialization routines */
-	/* trampoline is still on memory, physical ram is not mapped */
+	/*
+	 * Set vectors so we call initialization routines.
+	 * trampoline is mapped at TRAMPOLINE_VA but not at its physical
+	 * address so we don't have an identity map to be able to
+	 * disable MMU. We need to set exception vector at trampoline
+	 * at TRAMPOLINE_VA address which is mapped.
+	 */
 	kvm_call_hyp(__kvm_set_vectors,(unsigned long) (TRAMPOLINE_VA + (vector & (PAGE_SIZE-1))));
 
-	/* set HVBAR to physical, page table to identity to do the switch */
-	kvm_call_hyp((void*) 0x100, (unsigned long) vector, kvm_mmu_get_boot_httbr());
+	/*
+	 * Set HVBAR to physical address, page table to identity to do the switch
+	 */
+	kvm_call_hyp((void*) 4, (unsigned long) vector, kvm_mmu_get_boot_httbr());
 
+	/*
+	 * Flush to make sure code after the cache are disabled see updated values
+	 */
 	flush_cache_all();
 
-	/* Turn off caching on Hypervisor mode */
+	/*
+	 * Turn off caching on Hypervisor mode
+	 */
 	kvm_call_hyp((void*) 1);
 
+	/*
+	 * Flush to make sude code don't see old cached values after cache is
+	 * enabled
+	 */
 	flush_cache_all();
 
-	/* restore execution */
-	kvm_call_hyp((void*) 3, kvm_saved_sctlr, addr);
+	/*
+	 * Restore execution
+	 */
+	kvm_call_hyp((void*) 3, addr);
 }
 
 /* NOP: Compiling as a module not supported */
