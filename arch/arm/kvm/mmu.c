@@ -211,6 +211,11 @@ void free_boot_hyp_pgd(void)
 	init_bounce_page = NULL;
 #endif
 
+	/* avoid to reuse possibly invalid values if bounce page is freed */
+	hyp_idmap_start = 0;
+	hyp_idmap_end = 0;
+	hyp_idmap_vector = 0;
+
 	mutex_unlock(&kvm_hyp_pgd_mutex);
 }
 
