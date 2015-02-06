@@ -180,6 +180,7 @@ struct kvm_vcpu *kvm_arm_get_running_vcpu(void);
 struct kvm_vcpu __percpu **kvm_get_running_vcpus(void);
 
 u64 kvm_call_hyp(void *hypfn, ...);
+u64 kvm_call_hyp_ext(void *hypfn, ...);
 
 int handle_exit(struct kvm_vcpu *vcpu, struct kvm_run *run,
 		int exception_index);
@@ -196,7 +197,7 @@ static inline void __cpu_init_hyp_mode(phys_addr_t boot_pgd_ptr,
 	 * Call initialization code, and switch to the full blown
 	 * HYP code.
 	 */
-	kvm_call_hyp((void *)boot_pgd_ptr, pgd_ptr,
+	kvm_call_hyp_ext((void *)boot_pgd_ptr, pgd_ptr,
 		     hyp_stack_ptr, vector_ptr);
 }
 

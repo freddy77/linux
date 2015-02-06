@@ -696,6 +696,7 @@ __hyp_panic_str:
 
 /*
  * u64 kvm_call_hyp(void *hypfn, ...);
+ * u64 kvm_call_hyp_exp(void *hypfn, ...);
  *
  * This is not really a variadic function in the classic C-way and care must
  * be taken when calling this to ensure parameters are passed in registers
@@ -712,10 +713,12 @@ __hyp_panic_str:
  * used to implement __hyp_get_vectors in the same way as in
  * arch/arm64/kernel/hyp_stub.S.
  */
+ENTRY(kvm_call_hyp_ext)
 ENTRY(kvm_call_hyp)
 	hvc	#0
 	ret
 ENDPROC(kvm_call_hyp)
+ENDPROC(kvm_call_hyp_ext)
 
 .macro invalid_vector	label, target
 	.align	2

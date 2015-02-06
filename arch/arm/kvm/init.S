@@ -72,6 +72,8 @@ __do_hyp_init:
 	beq	cpu_proc_fin
 	cmp	r0, #3
 	beq	restore
+@	cmp	r0, #5
+@	beq	set_hvbar_
 
 	cmp	r0, #0			@ We have a SP?
 	bne	phase2			@ Yes, second stage init

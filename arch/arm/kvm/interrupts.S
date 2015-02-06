@@ -245,6 +245,17 @@ ENTRY(kvm_call_hyp)
 	hvc	#0
 	bx	lr
 
+/*
+ * Extend call supporting up to 8 parameters on registers
+ */
+ENTRY(kvm_call_hyp_ext)
+	push	{r4-r7}
+	ldrd	r4, r5, [sp, #16]
+	ldrd	r6, r7, [sp, #24]
+	hvc	#0
+	pop	{r4-r7}
+	bx	lr
+
 /********************************************************************
  * Hypervisor exception vector and handlers
  *
