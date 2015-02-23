@@ -22,6 +22,14 @@
 		serial0 = &uart0;
 	};
 
+	psci {
+		compatible = "arm,psci-0.2", "arm,psci";
+		method = "smc";
+
+		cpu_off = <0x84000002>;
+		cpu_on  = <0x84000003>;
+	};
+
 	cpus {
 		#address-cells = <1>;
 		#size-cells = <0>;
@@ -202,11 +210,6 @@
 		sysctrl: sysctrl {
 			compatible = "hisilicon,sysctrl";
 			reg = <0x3e00000 0x00100000>;
-			relocation-entry = <0xe0000100>;
-			relocation-size = <0x1000>;
-			bootwrapper-phys = <0x10c00000>;
-			bootwrapper-size = <0x10000>;
-			bootwrapper-magic = <0xa5a5a5a5>;
 		};
 
 		fabric: fabric {
