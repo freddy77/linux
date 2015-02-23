@@ -29,10 +29,11 @@
 /*		xen,xen-bootargs = "console=dtuart dtuart=serial0"; */
 		xen,xen-bootargs = "console=dtuart dtuart=serial0";
 /*		xen,dom0-bootargs = "console=hvc0 earlyprintk rootfstype=nfsroot root=/dev/nfs rw nfsroot=192.168.1.1:/binary ip=192.168.1.12:192.168.1.1:192.168.1.1:255.255.255.0::eth0:on:192.168.1.1:8.8.8.8 user_debug=31 nfsrootdebug loglevel=7 sched_debug"; */
-		xen,dom0-bootargs = "console=hvc0 earlyprintk root=/dev/sda2 rw loglevel=7 init=/bin/bash";
-		module@0x10d00000 {
+/*		xen,dom0-bootargs = "console=hvc0 earlyprintk root=/dev/sda2 rw loglevel=7 init=/bin/bash"; */
+		xen,dom0-bootargs = "console=hvc0 earlyprintk rootfstype=nfsroot root=/dev/nfs rw nfsroot=192.168.1.102:/binary ip=192.168.1.12:192.168.1.102:192.168.1.102:255.255.255.0::eth0:on:192.168.1.102:8.8.8.8 user_debug=31";
+		module@kernel {
 	                compatible = "xen,linux-kernel", "xen,multiboot-module";
-        	        reg = <0x10d00000 0x300000>;
+        	        reg = <0x1040d000 0x300000>;
 /*        	        reg = <0x10d00000 0x1800000>; */
         	};
 	};
