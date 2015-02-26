@@ -196,7 +196,7 @@
 		ranges = <0 0 0xe0000000 0x10000000>;
 
 		gic: interrupt-controller@c01000 {
-			compatible = "hisilicon,hip04-gic";
+			compatible = "hisilicon,hip04-intc";
 			#interrupt-cells = <3>;
 			#address-cells = <0>;
 			interrupt-controller;
